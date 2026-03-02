@@ -57,7 +57,8 @@ Requirements
 - filesysbox.library v54 or newer (included with OS 4.1 FE)
 - QEMU 10.0+ with VirtIO 9P support (Linux, WSL2, or macOS -- not available
   on Windows QEMU builds)
-- A PPC AmigaOS machine (real or emulated): AmigaOne, Pegasos2, or SAM
+- QEMU emulating a PPC AmigaOS machine (tested on AmigaOne only; Pegasos2 and
+  SAM460 are not yet tested)
 
 
 Installation
