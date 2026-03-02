@@ -1,0 +1,6 @@
+Handler   = L:Virtio9PFS-handler
+Stacksize = 65536
+Priority  = 5
+GlobVec   = -1
+Activate  = 1
+Control   = "auto"

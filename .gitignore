@@ -1,0 +1,6 @@
+build/
+releases/
+test/
+*.o
+*.device
+CLAUDE.md
