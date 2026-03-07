@@ -39,6 +39,21 @@ test: $(BUILD_DIR) $(TEST_TARGET)
 $(TEST_TARGET): test/test_9p.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) test/test_9p.c -o $(TEST_TARGET) -lauto
 
+DIST_DIR = $(BUILD_DIR)/Virtio9PFS
+DIST_NAME = Virtio9PFS_$(shell grep HANDLER_VERSION include/version.h | head -1 | awk '{print $$3}').$(shell grep HANDLER_REVISION include/version.h | head -1 | awk '{print $$3}').$(shell grep HANDLER_BUILD include/version.h | head -1 | awk '{print $$3}')-beta
+DIST_ARCHIVE = $(BUILD_DIR)/$(DIST_NAME).lha
+
+dist: all
+	rm -rf $(DIST_DIR)
+	mkdir -p $(DIST_DIR)
+	cp $(TARGET) $(DIST_DIR)/Virtio9PFS-handler
+	cp DOSDriver/SHARED $(DIST_DIR)/SHARED
+	cp install.sh $(DIST_DIR)/install.sh
+	cp README.txt $(DIST_DIR)/README
+	cd $(BUILD_DIR) && lha -c $(DIST_NAME).lha Virtio9PFS/
+	rm -rf $(DIST_DIR)
+	@echo "Created $(DIST_ARCHIVE)"
+
 clean:
 	rm -rf $(BUILD_DIR)
 
@@ -47,4 +62,4 @@ install: all test
 	cp DOSDriver/SHARED $(SHARED_DIR)/SHARED.DOSDriver
 	cp $(TEST_TARGET) $(SHARED_DIR)/test_9p
 
-.PHONY: all clean install test
+.PHONY: all clean install test dist

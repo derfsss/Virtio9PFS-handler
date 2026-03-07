@@ -7,8 +7,8 @@ folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 Status: Beta -- tested on QEMU AmigaOne (legacy VirtIO) only. Pegasos2
 (modern VirtIO) is implemented but not yet validated. Use at your own risk.
 
-Important: QEMU for Windows (x64) does not currently support -virtfs.
-You need a Linux, WSL2, or macOS QEMU build to use VirtIO 9P shared folders.
+Important: Official QEMU for Windows (x64) does not include -virtfs
+support. However, it can be patched -- see "Windows QEMU Setup" below.
 
 
 What It Does
@@ -31,10 +31,10 @@ Features
   AmigaOne (Articia S)
 - Modern mode -- MMIO BAR access via stwbrx/lwbrx inline asm, little-endian
   vring fields; implemented for Pegasos2 (MV64361), not yet tested
-- FileSysBox FUSE interface -- implements 18 FUSE callbacks; all DOS packet
+- FileSysBox FUSE interface -- implements 21 FUSE callbacks; all DOS packet
   handling is done by filesysbox.library v54+
 - Full filesystem operations -- directory listing, file read/write, create,
-  delete, rename, mkdir, rmdir, truncate, statfs, utimens
+  delete, rename, mkdir, rmdir, truncate, chmod, chown, statfs, utimens
 - Large file support -- reads and writes larger than msize are automatically
   split into multiple 9P transactions
 - 512 KB message size -- negotiates 512 KB msize with QEMU for maximum
@@ -47,7 +47,7 @@ Features
   overhead under load
 - No newlib dependency -- uses _start() entry point with -nostartfiles;
   inline string/memory helpers in string_utils.h
-- Automatic installer -- AmigaOS Shell script copies files from USB drive
+- Automatic installer -- AmigaOS Shell script copies handler and DOSDriver
 
 
 Requirements
@@ -55,8 +55,8 @@ Requirements
 
 - AmigaOS 4.1 Final Edition (or later)
 - filesysbox.library v54 or newer (included with OS 4.1 FE)
-- QEMU 10.0+ with VirtIO 9P support (Linux, WSL2, or macOS -- not available
-  on Windows QEMU builds)
+- QEMU 10.0+ with VirtIO 9P support (Linux, WSL2, macOS, or patched
+  Windows -- see "Windows QEMU Setup" below)
 - QEMU emulating a PPC AmigaOS machine (tested on AmigaOne only; Pegasos2 and
   SAM460 are not yet tested)
 
@@ -66,20 +66,18 @@ Installation
 
 Quick Install (from AmigaOS Shell):
 
-  If the handler files are on a USB FAT drive (USB0:):
+  Extract the distribution archive, cd into the extracted directory, and run:
 
-    execute USB0:install.sh
-
-  Or specify a different source drive:
-
-    execute USB0:install.sh DRIVE=USB1:
+    cd RAM:Virtio9PFS
+    execute install.sh
 
   This copies the handler to L: and the DOSDriver to DEVS:DOSDrivers/.
+  Reboot to activate the SHARED: volume.
 
 Manual Install:
 
   1. Copy Virtio9PFS-handler to L:
-  2. Copy SHARED.DOSDriver to DEVS:DOSDrivers/SHARED
+  2. Copy SHARED to DEVS:DOSDrivers/SHARED
   3. Reboot to activate (or mount manually)
 
 
@@ -97,10 +95,37 @@ DEVS:DOSDrivers/SHARED). QEMU automatically creates the appropriate VirtIO
 9P PCI device for the machine type.
 
 
+Windows QEMU Setup
+------------------
+
+Official Windows QEMU builds do not include VirtIO 9P (-virtfs) support.
+You can patch and rebuild QEMU yourself to enable it. Community-maintained
+patches are available at:
+
+  Pre-built Windows QEMU binaries with 9P patches:
+    https://github.com/arixmkii/qcw/tags
+
+  Patch files (to apply to upstream QEMU source):
+    https://github.com/arixmkii/qcw/tree/main/patches/qemu
+
+On Windows, the -virtfs shorthand may not work. Use the explicit -fsdev +
+-device syntax instead:
+
+    -fsdev local,security_model=mapped-xattr,id=fsdev0,path=D:\SHARED
+    -device virtio-9p-pci-non-transitional,id=fs0,fsdev=fsdev0,mount_tag=SHARED
+
+Notes:
+  - virtio-9p-pci-non-transitional (modern VirtIO 1.0) is required for
+    Pegasos2. For AmigaOne, use virtio-9p-pci (legacy) instead.
+  - security_model=mapped-xattr stores Unix permission metadata in NTFS
+    Alternate Data Streams, allowing protect (chmod) to work on the shared
+    volume. security_model=none passes through host permissions directly.
+
+
 DOSDriver Configuration
 -----------------------
 
-The included SHARED.DOSDriver file contains:
+The included SHARED DOSDriver file contains:
 
     Handler   = L:Virtio9PFS-handler
     Stacksize = 65536
@@ -153,6 +178,20 @@ implementation plan, and tested on QEMU-emulated AmigaOne.
 Version History
 ---------------
 
+0.4.0-beta (07 Mar 2026)
+  - chmod support -- SetProtection (protect) now works on shared volumes;
+    reads current mode via P9_Getattr to preserve file type bits, then
+    merges permission bits via P9_Setattr(P9_SETATTR_MODE)
+    (raised by kas1e -- GitHub issue #1:
+    https://github.com/derfsss/Virtio9PFS-handler/issues/1)
+  - chown support -- uid/gid changes via P9_Setattr
+  - Windows QEMU documentation -- added setup instructions with links to
+    community patches (arixmkii/qcw), working -fsdev command line syntax,
+    and mapped-xattr notes (raised by kas1e)
+  - ftruncate support -- ChangeFileSize on open file handles now works
+  - 21 FUSE callbacks -- up from 18 (added chmod, chown, ftruncate)
+  - Test suite expanded -- new chmod test (Test 12), 12/12 tests passing
+
 0.3.0-beta (02 Mar 2026)
   - 512 KB message size -- increased P9_MSIZE from 64 KB to 512 KB; each
     P9_Read/Write transfers up to ~512 KB per round-trip (8x fewer
@@ -175,6 +214,12 @@ Version History
   - Fixed mount tag garbage and Wait() deadlock with FBX event loop
   - Manual library management: IExec from sysbase, explicit OpenLibrary
   - Added install.sh AmigaOS Shell installer script
+
+0.1.1 (02 Mar 2026)
+  - Separated version strings into version.h
+  - Added debug.h with auto-prefixed [virtio9p] DPRINTF macro
+  - Added integration test suite (test/test_9p.c)
+  - Added README.md and CLAUDE.md
 
 0.1.0 (02 Mar 2026)
   - Initial implementation

@@ -418,6 +418,25 @@ static int v9p_truncate(const char *path, fbx_off_t size)
     return (int)err;
 }
 
+static int v9p_ftruncate(const char *path, fbx_off_t size,
+                         struct fuse_file_info *fi)
+{
+    struct V9PHandler *h = g_handler;
+    uint32 fid = (uint32)fi->fh;
+
+    (void)path;
+
+    DPRINTF("ftruncate: fid=%lu size=%lld\n", (unsigned long)fid, (long long)size);
+
+    struct P9Iattr attr;
+    memset(&attr, 0, sizeof(attr));
+    attr.valid = P9_SETATTR_SIZE;
+    attr.size = (uint64)size;
+
+    int32 err = P9_Setattr(h, fid, &attr);
+    return (int)err;
+}
+
 static int v9p_statfs(const char *path, struct statvfs *st)
 {
     struct V9PHandler *h = g_handler;
@@ -472,6 +491,66 @@ static int v9p_utimens(const char *path, const struct timespec tv[2])
     return (int)err;
 }
 
+static int v9p_chmod(const char *path, mode_t mode)
+{
+    struct V9PHandler *h = g_handler;
+    uint32 fid;
+
+    DPRINTF("chmod: '%s' mode=0%lo\n", path, (unsigned long)mode);
+
+    int32 err = walk_to(h, path, &fid);
+    if (err)
+        return (int)err;
+
+    /* Read current mode to preserve file type bits (S_IFREG/S_IFDIR etc.)
+     * FBX passes only permission bits; without merging, QEMU would write
+     * a broken mode missing the file type, corrupting mapped-xattr metadata. */
+    struct P9Stat p9st;
+    err = P9_Getattr(h, fid, P9_GETATTR_MODE, &p9st);
+    if (err) {
+        DPRINTF("chmod: Getattr failed: %ld\n", err);
+        P9_Clunk(h, fid);
+        FidPool_Free(h->fid_pool, fid);
+        return (int)err;
+    }
+
+    struct P9Iattr attr;
+    memset(&attr, 0, sizeof(attr));
+    attr.valid = P9_SETATTR_MODE;
+    attr.mode = (p9st.mode & ~07777) | ((uint32)mode & 07777);
+
+    err = P9_Setattr(h, fid, &attr);
+    P9_Clunk(h, fid);
+    FidPool_Free(h->fid_pool, fid);
+
+    return (int)err;
+}
+
+static int v9p_chown(const char *path, fbx_uid_t uid, fbx_gid_t gid)
+{
+    struct V9PHandler *h = g_handler;
+    uint32 fid;
+
+    DPRINTF("chown: '%s' uid=%lu gid=%lu\n", path,
+            (unsigned long)uid, (unsigned long)gid);
+
+    int32 err = walk_to(h, path, &fid);
+    if (err)
+        return (int)err;
+
+    struct P9Iattr attr;
+    memset(&attr, 0, sizeof(attr));
+    attr.valid = P9_SETATTR_UID | P9_SETATTR_GID;
+    attr.uid = (uint32)uid;
+    attr.gid = (uint32)gid;
+
+    err = P9_Setattr(h, fid, &attr);
+    P9_Clunk(h, fid);
+    FidPool_Free(h->fid_pool, fid);
+
+    return (int)err;
+}
+
 static void *v9p_init(struct fuse_conn_info *conn)
 {
     struct V9PHandler *h = g_handler;
@@ -512,6 +591,9 @@ void V9P_FillOperations(struct fuse_operations *ops)
     ops->rmdir      = v9p_rmdir;
     ops->rename     = v9p_rename;
     ops->truncate   = v9p_truncate;
+    ops->ftruncate  = v9p_ftruncate;
+    ops->chmod      = v9p_chmod;
+    ops->chown      = v9p_chown;
     ops->statfs     = v9p_statfs;
     ops->utimens    = v9p_utimens;
 }
