@@ -2,6 +2,7 @@
 #include <proto/exec.h>
 #include <exec/memory.h>
 
+/* Create a new FID pool. Returns NULL on allocation failure. */
 struct FidPool *FidPool_Create(void)
 {
     struct FidPool *pool = (struct FidPool *)IExec->AllocVecTags(
@@ -24,6 +25,7 @@ struct FidPool *FidPool_Create(void)
     return pool;
 }
 
+/* Destroy the pool and free all backing memory. */
 void FidPool_Destroy(struct FidPool *pool)
 {
     if (!pool)
@@ -33,6 +35,8 @@ void FidPool_Destroy(struct FidPool *pool)
     IExec->FreeVec(pool);
 }
 
+/* Allocate a FID. Reuses freed FIDs first, otherwise increments monotonically.
+ * FID 0 is never returned (reserved for root). */
 uint32 FidPool_Alloc(struct FidPool *pool)
 {
     if (pool->free_count > 0) {
@@ -42,6 +46,8 @@ uint32 FidPool_Alloc(struct FidPool *pool)
     return pool->next_fid++;
 }
 
+/* Return a FID to the pool for reuse. If the free list cannot grow,
+ * the FID is leaked rather than crashing the handler. */
 void FidPool_Free(struct FidPool *pool, uint32 fid)
 {
     if (pool->free_count >= pool->free_capacity) {

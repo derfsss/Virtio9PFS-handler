@@ -239,6 +239,12 @@ int32 _start(STRPTR argstring __attribute__((unused)),
             IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
             goto cleanup_bufs;
         }
+        if (n > 1) {
+            DPRINTF("main: tx_buf physically fragmented (%lu entries) — need contiguous.\n", n);
+            IExec->EndDMA(handler.tx_buf, handler.msize, DMA_ReadFromRAM | DMAF_NoModify);
+            IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
+            goto cleanup_bufs;
+        }
         de = (struct DMAEntry *)IExec->AllocSysObjectTags(
             ASOT_DMAENTRY, ASODMAE_NumEntries, n, TAG_DONE);
         IExec->GetDMAList(handler.tx_buf, handler.msize, DMA_ReadFromRAM, de);
@@ -249,6 +255,12 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         n = IExec->StartDMA(handler.rx_buf, handler.msize, 0);
         if (n == 0) {
             DPRINTF("main: StartDMA(rx) failed.\n");
+            IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
+            goto cleanup_bufs;
+        }
+        if (n > 1) {
+            DPRINTF("main: rx_buf physically fragmented (%lu entries) — need contiguous.\n", n);
+            IExec->EndDMA(handler.rx_buf, handler.msize, DMAF_NoModify);
             IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
             goto cleanup_bufs;
         }

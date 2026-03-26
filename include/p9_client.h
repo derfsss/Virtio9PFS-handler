@@ -37,18 +37,31 @@ int32 P9_Read(struct V9PHandler *h, uint32 fid, uint64 offset,
               uint32 count, void *buf, uint32 *actual);
 int32 P9_Write(struct V9PHandler *h, uint32 fid, uint64 offset,
                uint32 count, const void *buf, uint32 *actual);
+int32 P9_Fsync(struct V9PHandler *h, uint32 fid, uint32 datasync);
 
 /* Metadata */
 int32 P9_Getattr(struct V9PHandler *h, uint32 fid, uint64 mask, struct P9Stat *st);
 int32 P9_Setattr(struct V9PHandler *h, uint32 fid, struct P9Iattr *attr);
 int32 P9_Statfs(struct V9PHandler *h, uint32 fid, struct P9Statfs *st);
 
-/* Directory operations */
+/* Directory operations.
+ * P9_Readdir returns a pointer into rx_buf (zero-copy).  The caller must
+ * fully consume the data before the next V9P_Transact call, which overwrites
+ * rx_buf. */
 int32 P9_Readdir(struct V9PHandler *h, uint32 fid, uint64 offset,
                   uint32 count, uint8 **data_out, uint32 *actual);
 int32 P9_Mkdir(struct V9PHandler *h, uint32 dfid, const char *name, uint32 mode);
 int32 P9_Unlinkat(struct V9PHandler *h, uint32 dfid, const char *name, uint32 flags);
 int32 P9_Renameat(struct V9PHandler *h, uint32 olddirfid, const char *oldname,
                    uint32 newdirfid, const char *newname);
+
+/* Link operations */
+int32 P9_Symlink(struct V9PHandler *h, uint32 dfid, const char *name,
+                  const char *target);
+int32 P9_Readlink(struct V9PHandler *h, uint32 fid, char *target, uint32 maxlen);
+int32 P9_Link(struct V9PHandler *h, uint32 dfid, uint32 fid, const char *name);
+
+/* Request cancellation */
+int32 P9_Flush(struct V9PHandler *h, uint16 oldtag);
 
 #endif /* P9_CLIENT_H */

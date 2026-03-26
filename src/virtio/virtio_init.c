@@ -133,7 +133,7 @@ static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler)
         }
     }
 
-    /* Reset */
+    /* Reset — spec requires polling until status reads 0 */
     mmio_w8(pciDev, base + VIRTIO_PCI_COMMON_STATUS, 0x00);
     {
         uint32 tries = 0;
@@ -142,6 +142,12 @@ static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler)
             rst = mmio_r8(pciDev, base + VIRTIO_PCI_COMMON_STATUS);
             tries++;
         } while (rst != 0 && tries < 1000);
+
+        if (rst != 0) {
+            DPRINTF("InitVirtIO_Modern: Device reset timeout (status=0x%02X)\n",
+                    (uint32)rst);
+            return FALSE;
+        }
     }
 
     /* ACKNOWLEDGE */

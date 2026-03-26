@@ -191,6 +191,10 @@ void *VirtQueue_GetBuf(struct ExecIFace *IExec, struct virtqueue *vq, uint32 *le
     uint32 desc_id = vr32(vq->modern, vq->used->ring[used_slot].id);
     uint32 written = vr32(vq->modern, vq->used->ring[used_slot].len);
 
+    /* Validate descriptor index from device to prevent out-of-bounds access */
+    if (desc_id >= vq->num)
+        return NULL;
+
     if (len_out)
         *len_out = written;
 

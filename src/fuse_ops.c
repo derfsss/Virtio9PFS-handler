@@ -52,7 +52,12 @@ static void split_path(const char *path, char *parent, int parent_max,
     }
 }
 
-/* Walk to path from root, allocate a fid. Caller must Clunk + FidPool_Free. */
+/*
+ * Walk from root to path, allocating a new FID for the target.
+ * On success, *out_fid holds the new FID; caller must P9_Clunk() +
+ * FidPool_Free() when done. On failure, the FID is already freed.
+ * Returns 0 on success, negative errno on failure.
+ */
 static int32 walk_to(struct V9PHandler *h, const char *path, uint32 *out_fid)
 {
     uint32 fid = FidPool_Alloc(h->fid_pool);
@@ -65,7 +70,8 @@ static int32 walk_to(struct V9PHandler *h, const char *path, uint32 *out_fid)
     return 0;
 }
 
-/* Convert P9Stat to fbx_stat */
+/* Convert a 9P Rgetattr response into FBX's stat structure.
+ * Copies mode, ownership, size, timestamps, and inode from the 9P result. */
 static void p9stat_to_fbxstat(const struct P9Stat *p9, struct fbx_stat *st)
 {
     memset(st, 0, sizeof(*st));
@@ -217,8 +223,9 @@ static int v9p_open(const char *path, struct fuse_file_info *fi)
     if (err)
         return (int)err;
 
-    /* Pass access mode flags to Lopen */
-    uint32 flags = (uint32)fi->flags & 0x3; /* O_RDONLY/O_WRONLY/O_RDWR */
+    /* Pass access mode + modifier flags to Lopen.
+     * O_RDONLY/O_WRONLY/O_RDWR (bits 0-1), O_APPEND (0x08), O_TRUNC (0x200). */
+    uint32 flags = (uint32)fi->flags & (0x3 | 0x08 | 0x200);
     err = P9_Lopen(h, fid, flags, NULL);
     if (err) {
         P9_Clunk(h, fid);
@@ -301,7 +308,7 @@ static int v9p_create(const char *path, mode_t mode, struct fuse_file_info *fi)
         return (int)err;
 
     /* Lcreate mutates dfid to point to the newly created+opened file */
-    uint32 flags = (uint32)fi->flags & 0x3;
+    uint32 flags = (uint32)fi->flags & (0x3 | 0x08 | 0x200);
     err = P9_Lcreate(h, dfid, name, flags, (uint32)mode, NULL);
     if (err) {
         P9_Clunk(h, dfid);
@@ -454,12 +461,12 @@ static int v9p_statfs(const char *path, struct statvfs *st)
     memset(st, 0, sizeof(*st));
     st->f_bsize   = p9st.bsize;
     st->f_frsize  = p9st.bsize;
-    st->f_blocks  = (unsigned long)p9st.blocks;
-    st->f_bfree   = (unsigned long)p9st.bfree;
-    st->f_bavail  = (unsigned long)p9st.bavail;
-    st->f_files   = (unsigned long)p9st.files;
-    st->f_ffree   = (unsigned long)p9st.ffree;
-    st->f_favail  = (unsigned long)p9st.ffree;
+    st->f_blocks  = (fsblkcnt_t)p9st.blocks;
+    st->f_bfree   = (fsblkcnt_t)p9st.bfree;
+    st->f_bavail  = (fsblkcnt_t)p9st.bavail;
+    st->f_files   = (fsfilcnt_t)p9st.files;
+    st->f_ffree   = (fsfilcnt_t)p9st.ffree;
+    st->f_favail  = (fsfilcnt_t)p9st.ffree;
     st->f_fsid    = (unsigned long)p9st.fsid;
     st->f_namemax = p9st.namelen;
 
@@ -487,6 +494,89 @@ static int v9p_utimens(const char *path, const struct timespec tv[2])
     err = P9_Setattr(h, fid, &attr);
     P9_Clunk(h, fid);
     FidPool_Free(h->fid_pool, fid);
+
+    return (int)err;
+}
+
+static int v9p_fsync(const char *path, int datasync, struct fuse_file_info *fi)
+{
+    struct V9PHandler *h = g_handler;
+    uint32 fid = (uint32)fi->fh;
+
+    (void)path;
+
+    DPRINTF("fsync: fid=%lu datasync=%d\n", (unsigned long)fid, datasync);
+
+    int32 err = P9_Fsync(h, fid, datasync ? 1 : 0);
+    return (int)err;
+}
+
+static int v9p_symlink(const char *target, const char *path)
+{
+    struct V9PHandler *h = g_handler;
+    char parent[1024], name[256];
+    split_path(path, parent, sizeof(parent), name, sizeof(name));
+
+    DPRINTF("symlink: '%s' -> '%s'\n", path, target);
+
+    uint32 dfid;
+    int32 err = walk_to(h, parent, &dfid);
+    if (err)
+        return (int)err;
+
+    err = P9_Symlink(h, dfid, name, target);
+    P9_Clunk(h, dfid);
+    FidPool_Free(h->fid_pool, dfid);
+
+    return (int)err;
+}
+
+static int v9p_readlink(const char *path, char *buf, size_t size)
+{
+    struct V9PHandler *h = g_handler;
+    uint32 fid;
+
+    DPRINTF("readlink: '%s'\n", path);
+
+    int32 err = walk_to(h, path, &fid);
+    if (err)
+        return (int)err;
+
+    err = P9_Readlink(h, fid, buf, (uint32)size);
+    P9_Clunk(h, fid);
+    FidPool_Free(h->fid_pool, fid);
+
+    return (int)err;
+}
+
+static int v9p_link(const char *oldpath, const char *newpath)
+{
+    struct V9PHandler *h = g_handler;
+    char parent[1024], name[256];
+    split_path(newpath, parent, sizeof(parent), name, sizeof(name));
+
+    DPRINTF("link: '%s' -> '%s'\n", oldpath, newpath);
+
+    /* Walk to the existing file to get its fid */
+    uint32 srcfid;
+    int32 err = walk_to(h, oldpath, &srcfid);
+    if (err)
+        return (int)err;
+
+    /* Walk to the parent of the new link */
+    uint32 dfid;
+    err = walk_to(h, parent, &dfid);
+    if (err) {
+        P9_Clunk(h, srcfid);
+        FidPool_Free(h->fid_pool, srcfid);
+        return (int)err;
+    }
+
+    err = P9_Link(h, dfid, srcfid, name);
+    P9_Clunk(h, dfid);
+    P9_Clunk(h, srcfid);
+    FidPool_Free(h->fid_pool, dfid);
+    FidPool_Free(h->fid_pool, srcfid);
 
     return (int)err;
 }
@@ -592,6 +682,10 @@ void V9P_FillOperations(struct fuse_operations *ops)
     ops->rename     = v9p_rename;
     ops->truncate   = v9p_truncate;
     ops->ftruncate  = v9p_ftruncate;
+    ops->fsync      = v9p_fsync;
+    ops->symlink    = v9p_symlink;
+    ops->readlink   = v9p_readlink;
+    ops->link       = v9p_link;
     ops->chmod      = v9p_chmod;
     ops->chown      = v9p_chown;
     ops->statfs     = v9p_statfs;

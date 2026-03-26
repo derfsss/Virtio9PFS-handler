@@ -4,8 +4,9 @@ Virtio9PFS-handler
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-Status: Beta -- tested on QEMU AmigaOne (legacy VirtIO) only. Pegasos2
-(modern VirtIO) is implemented but not yet validated. Use at your own risk.
+Status: Beta (v0.5.0) -- tested on QEMU AmigaOne (legacy VirtIO) only.
+Pegasos2 (modern VirtIO) is implemented but not yet validated. Use at your
+own risk.
 
 Important: Official QEMU for Windows (x64) does not include -virtfs
 support. However, it can be patched -- see "Windows QEMU Setup" below.
@@ -31,10 +32,11 @@ Features
   AmigaOne (Articia S)
 - Modern mode -- MMIO BAR access via stwbrx/lwbrx inline asm, little-endian
   vring fields; implemented for Pegasos2 (MV64361), not yet tested
-- FileSysBox FUSE interface -- implements 21 FUSE callbacks; all DOS packet
+- FileSysBox FUSE interface -- implements 25 FUSE callbacks; all DOS packet
   handling is done by filesysbox.library v54+
 - Full filesystem operations -- directory listing, file read/write, create,
-  delete, rename, mkdir, rmdir, truncate, chmod, chown, statfs, utimens
+  delete, rename, mkdir, rmdir, truncate, chmod, chown, statfs, utimens,
+  fsync, symlink, readlink, hard link
 - Large file support -- reads and writes larger than msize are automatically
   split into multiple 9P transactions
 - 512 KB message size -- negotiates 512 KB msize with QEMU for maximum
@@ -57,8 +59,8 @@ Requirements
 - filesysbox.library v54 or newer (included with OS 4.1 FE)
 - QEMU 10.0+ with VirtIO 9P support (Linux, WSL2, macOS, or patched
   Windows -- see "Windows QEMU Setup" below)
-- QEMU emulating a PPC AmigaOS machine (tested on AmigaOne only; Pegasos2 and
-  SAM460 are not yet tested)
+- QEMU emulating a PPC AmigaOS machine (tested on AmigaOne only; Pegasos2
+  and SAM460 are not yet tested)
 
 
 Installation
@@ -139,6 +141,13 @@ The included SHARED DOSDriver file contains:
 - The volume name matches the QEMU mount_tag parameter
 
 
+Debug Output
+------------
+
+Compile with -DDEBUG to enable serial debug output (QEMU serial console or
+Sashimi on real hardware). All debug messages are prefixed with [virtio9p].
+
+
 Architecture
 ------------
 
@@ -149,7 +158,7 @@ translation; we only implement FUSE callbacks.
 
 Endianness:
 
-  9P wire protocol       Always LE    Byte swap via __builtin_bswap on PPC
+  9P wire protocol       Always LE    Byte-by-byte extraction (natural on BE PPC)
   Vring fields (legacy)  Native BE    No swap (vr16/vr32/vr64 = no-op)
   Vring fields (modern)  LE           Swap via vr16/vr32/vr64
   VirtIO config (legacy) Host-native  PCI I/O functions handle it
@@ -176,9 +185,61 @@ implementation plan, and tested on QEMU-emulated AmigaOne.
 
 
 Version History
----------------
+===============
+
+
+0.5.0-beta (26 Mar 2026)
+-------------------------
+
+  New 9P operations:
+  - fsync -- FFlush on open file handles now syncs data to host disk via
+    Tfsync (9P type 50); wired to FBX fsync callback
+  - symlink / readlink -- MakeLink(LINK_SOFT) creates symbolic links on
+    the host via Tsymlink (type 16); symlink targets are resolved via
+    Treadlink (type 22)
+  - hard link -- MakeLink(LINK_HARD) creates hard links via Tlink (type 70)
+  - flush (request cancellation) -- Tflush (type 108) is now sent
+    automatically when V9P_Transact times out, draining stalled descriptors
+    from the VirtIO queue instead of leaking them
+
+  Bug fixes:
+  - Buffer over-read in p9_get_str -- malformed wire-length fields could
+    read past rx_buf; now clamped to P9_MSIZE
+  - Descriptor index validation -- VirtQueue_GetBuf now rejects
+    device-written desc_id >= queue_size, preventing out-of-bounds access
+  - Path depth overflow -- P9_Walk returns ENAMETOOLONG for paths deeper
+    than 16 components instead of silently truncating
+  - Open flags too restrictive -- O_APPEND and O_TRUNC are now passed
+    through to Lopen/Lcreate (previously masked to access-mode only)
+  - statvfs 64-bit truncation -- block/file counts use fsblkcnt_t/
+    fsfilcnt_t instead of unsigned long
+  - Modern VirtIO reset timeout -- init now fails cleanly if device status
+    doesn't reach 0 within the retry limit
+  - DMA contiguity check -- startup fails with clear error if StartDMA
+    returns a physically fragmented buffer
+
+  Comment and code quality:
+  - Fixed misleading __builtin_bswap comment in p9_protocol.h that
+    contradicted the byte-extraction implementation
+  - Added doc comments to all fid_pool.c functions, walk_to(),
+    p9stat_to_fbxstat(), and P9_Readdir lifetime semantics in header
+  - Zero compiler warnings in release, DEBUG, and test builds -- DPRINTF
+    macro now uses dead-code pattern to suppress unused-variable warnings
+
+  Test suite:
+  - 25 tests (up from 12): added unlink, rmdir, chown, utimens,
+    ftruncate, fsync, symlink, hard link, readdir multi-entry, deep path,
+    read-only open, delete non-existent, cross-directory rename
+  - All path buffers widened to 512 bytes; volume name length validated
+
+  Protocol coverage:
+  - 21 of 24 useful 9P2000.L operations now implemented (was 16)
+  - 25 FUSE callbacks wired (was 21)
+
 
 0.4.0-beta (07 Mar 2026)
+-------------------------
+
   - chmod support -- SetProtection (protect) now works on shared volumes;
     reads current mode via P9_Getattr to preserve file type bits, then
     merges permission bits via P9_Setattr(P9_SETATTR_MODE)
@@ -192,7 +253,10 @@ Version History
   - 21 FUSE callbacks -- up from 18 (added chmod, chown, ftruncate)
   - Test suite expanded -- new chmod test (Test 12), 12/12 tests passing
 
+
 0.3.0-beta (02 Mar 2026)
+-------------------------
+
   - 512 KB message size -- increased P9_MSIZE from 64 KB to 512 KB; each
     P9_Read/Write transfers up to ~512 KB per round-trip (8x fewer
     transactions)
@@ -206,7 +270,10 @@ Version History
   - Version string in debug output -- startup banner shows handler name
     and version number
 
+
 0.2.0-beta (02 Mar 2026)
+-------------------------
+
   - First working release -- Workbench loads, SHARED: volume is browsable
   - Tested on QEMU AmigaOne (legacy VirtIO) only
   - Switched to _start() entry point with -nostartfiles -nodefaultlibs -lgcc
@@ -215,17 +282,25 @@ Version History
   - Manual library management: IExec from sysbase, explicit OpenLibrary
   - Added install.sh AmigaOS Shell installer script
 
+
 0.1.1 (02 Mar 2026)
+--------------------
+
   - Separated version strings into version.h
   - Added debug.h with auto-prefixed [virtio9p] DPRINTF macro
   - Added integration test suite (test/test_9p.c)
   - Added README.md and CLAUDE.md
 
+
 0.1.0 (02 Mar 2026)
+--------------------
+
   - Initial implementation
   - Dual-mode VirtIO transport (legacy I/O + modern MMIO)
   - Full 9P2000.L client
   - 18 FUSE callbacks via FileSysBox
+  - DMA-safe transport with interrupt-driven completion
+  - EVENT_IDX interrupt coalescing
 
 
 License

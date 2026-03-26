@@ -105,6 +105,14 @@ uint64 p9_get_u64(const uint8 *buf, uint32 *off)
 void p9_get_str(const uint8 *buf, uint32 *off, char *out, uint32 max)
 {
     uint16 len = p9_get_u16(buf, off);
+
+    /* Guard against malformed length that would read past the buffer.
+     * P9_MSIZE is the maximum possible buffer size. */
+    if (*off >= P9_MSIZE || len > P9_MSIZE - *off) {
+        out[0] = '\0';
+        return;
+    }
+
     uint32 copy = (len < max - 1) ? len : max - 1;
     memcpy(out, buf + *off, copy);
     out[copy] = '\0';

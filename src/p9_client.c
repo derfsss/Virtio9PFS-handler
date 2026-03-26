@@ -22,6 +22,10 @@
  *
  * PPC cache line = 32 bytes on G3/G4.
  */
+/* Forward declarations */
+static int32 p9_check_error(const uint8 *rx_buf);
+static uint16 p9_next_tag(struct V9PHandler *h);
+
 #define CACHE_LINE 32
 
 static inline void cache_flush(void *addr, uint32 len)
@@ -113,7 +117,46 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
     cache_invalidate(h->rx_buf, h->msize);
 
     if (!ret_cookie) {
-        DPRINTF("V9P_Transact: timeout waiting for response\n");
+        DPRINTF("V9P_Transact: timeout — attempting Tflush for tag\n");
+
+        /* Try to cancel the stalled request with Tflush.
+         * Reuse tx_buf (original request is already sent to device).
+         * Extract the tag from the stalled T-message for the flush. */
+        uint32 flush_off = 0;
+        uint16 stalled_tag = p9_get_u16(h->tx_buf + 5, &flush_off); /* tag at offset 5 */
+
+        flush_off = 0;
+        p9_put_header(h->tx_buf, &flush_off, P9_TFLUSH, p9_next_tag(h));
+        p9_put_u16(h->tx_buf, &flush_off, stalled_tag);
+        p9_finalize(h->tx_buf, flush_off);
+
+        cache_flush(h->tx_buf, flush_off);
+        cache_invalidate(h->rx_buf, h->msize);
+
+        sg[0].len = flush_off;
+        cookie = (void *)h->tx_buf;
+        rc = VirtQueue_AddBuf(IExec, vq, sg, 1, 1, cookie);
+        if (rc >= 0) {
+            VirtQueue_Kick(IExec, vq, pciDev, h->iobase);
+
+            /* Drain up to 2 responses (stalled R-message + Rflush) */
+            uint32 drain;
+            for (drain = 0; drain < 2; drain++) {
+                poll_count = 0;
+                while (poll_count < MAX_POLLS) {
+                    ret_cookie = VirtQueue_GetBuf(IExec, vq, &written);
+                    if (ret_cookie)
+                        break;
+                    __asm__ volatile("lwsync" ::: "memory");
+                    poll_count++;
+                }
+                if (!ret_cookie)
+                    break;
+            }
+            cache_invalidate(h->rx_buf, h->msize);
+        }
+
+        DPRINTF("V9P_Transact: flush complete, returning timeout\n");
         return 0;
     }
 
@@ -226,6 +269,13 @@ int32 P9_Walk(struct V9PHandler *h, uint32 fid, uint32 newfid, const char *path)
                 if (*p == '\0')
                     break;
             }
+        }
+
+        /* Fail if path has more components than a single Twalk can carry */
+        if (p && *p != '\0') {
+            DPRINTF("P9_Walk: path too deep (>%u components)\n",
+                    (uint32)P9_MAXWELEM);
+            return -36; /* ENAMETOOLONG */
         }
     }
 
@@ -593,6 +643,101 @@ int32 P9_Renameat(struct V9PHandler *h, uint32 olddirfid, const char *oldname,
     p9_put_str(buf, &off, oldname);
     p9_put_u32(buf, &off, newdirfid);
     p9_put_str(buf, &off, newname);
+    p9_finalize(buf, off);
+
+    uint32 rx_len = V9P_Transact(h, off);
+    if (rx_len == 0)
+        return -5;
+
+    return p9_check_error(h->rx_buf);
+}
+
+int32 P9_Fsync(struct V9PHandler *h, uint32 fid, uint32 datasync)
+{
+    uint8 *buf = h->tx_buf;
+    uint32 off = 0;
+
+    p9_put_header(buf, &off, P9_TFSYNC, p9_next_tag(h));
+    p9_put_u32(buf, &off, fid);
+    p9_put_u32(buf, &off, datasync);
+    p9_finalize(buf, off);
+
+    uint32 rx_len = V9P_Transact(h, off);
+    if (rx_len == 0)
+        return -5;
+
+    return p9_check_error(h->rx_buf);
+}
+
+int32 P9_Flush(struct V9PHandler *h, uint16 oldtag)
+{
+    uint8 *buf = h->tx_buf;
+    uint32 off = 0;
+
+    p9_put_header(buf, &off, P9_TFLUSH, p9_next_tag(h));
+    p9_put_u16(buf, &off, oldtag);
+    p9_finalize(buf, off);
+
+    uint32 rx_len = V9P_Transact(h, off);
+    if (rx_len == 0)
+        return -5;
+
+    return p9_check_error(h->rx_buf);
+}
+
+int32 P9_Symlink(struct V9PHandler *h, uint32 dfid, const char *name,
+                  const char *target)
+{
+    uint8 *buf = h->tx_buf;
+    uint32 off = 0;
+
+    p9_put_header(buf, &off, P9_TSYMLINK, p9_next_tag(h));
+    p9_put_u32(buf, &off, dfid);
+    p9_put_str(buf, &off, name);
+    p9_put_str(buf, &off, target);
+    p9_put_u32(buf, &off, 0);  /* gid */
+    p9_finalize(buf, off);
+
+    uint32 rx_len = V9P_Transact(h, off);
+    if (rx_len == 0)
+        return -5;
+
+    return p9_check_error(h->rx_buf);
+}
+
+int32 P9_Readlink(struct V9PHandler *h, uint32 fid, char *target, uint32 maxlen)
+{
+    uint8 *buf = h->tx_buf;
+    uint32 off = 0;
+
+    p9_put_header(buf, &off, P9_TREADLINK, p9_next_tag(h));
+    p9_put_u32(buf, &off, fid);
+    p9_finalize(buf, off);
+
+    uint32 rx_len = V9P_Transact(h, off);
+    if (rx_len == 0)
+        return -5;
+
+    int32 err = p9_check_error(h->rx_buf);
+    if (err)
+        return err;
+
+    /* Parse Rreadlink: size[4] type[1] tag[2] target[s] */
+    uint32 roff = 7;
+    p9_get_str(h->rx_buf, &roff, target, maxlen);
+
+    return 0;
+}
+
+int32 P9_Link(struct V9PHandler *h, uint32 dfid, uint32 fid, const char *name)
+{
+    uint8 *buf = h->tx_buf;
+    uint32 off = 0;
+
+    p9_put_header(buf, &off, P9_TLINK, p9_next_tag(h));
+    p9_put_u32(buf, &off, dfid);
+    p9_put_u32(buf, &off, fid);
+    p9_put_str(buf, &off, name);
     p9_finalize(buf, off);
 
     uint32 rx_len = V9P_Transact(h, off);

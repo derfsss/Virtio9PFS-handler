@@ -3,8 +3,9 @@
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-**Status: Beta** — tested on QEMU AmigaOne (legacy VirtIO) only. Pegasos2
-(modern VirtIO) is implemented but not yet validated. Use at your own risk.
+**Status: Beta (v0.5.0)** — tested on QEMU AmigaOne (legacy VirtIO) only.
+Pegasos2 (modern VirtIO) is implemented but not yet validated. Use at your
+own risk.
 
 **Important:** Official QEMU for Windows (x64) does not include `-virtfs`
 support. However, it can be patched — see [Windows QEMU Setup](#windows-qemu-setup)
@@ -26,10 +27,11 @@ directly from Workbench or the Shell.
   AmigaOne (Articia S)
 - **Modern mode** — MMIO BAR access via `stwbrx`/`lwbrx` inline asm,
   little-endian vring fields; implemented for Pegasos2 (MV64361), not yet tested
-- **FileSysBox FUSE interface** — implements 21 FUSE callbacks; all DOS packet
+- **FileSysBox FUSE interface** — implements 25 FUSE callbacks; all DOS packet
   handling is done by `filesysbox.library` v54+
 - **Full filesystem operations** — directory listing, file read/write, create,
-  delete, rename, mkdir, rmdir, truncate, chmod, chown, statfs, utimens
+  delete, rename, mkdir, rmdir, truncate, chmod, chown, statfs, utimens,
+  fsync, symlink, readlink, hard link
 - **Large file support** — reads and writes larger than msize are automatically
   split into multiple 9P transactions
 - **512 KB message size** — negotiates 512 KB msize with QEMU for maximum
@@ -178,7 +180,7 @@ projects/VirtIO9P/
 |       +-- virtio_irq.h      Interrupt handler API
 +-- src/
 |   +-- main.c                Handler entry (_start), FBX setup
-|   +-- fuse_ops.c            FUSE callbacks (21 operations)
+|   +-- fuse_ops.c            FUSE callbacks (25 operations)
 |   +-- p9_client.c           9P session + V9P_Transact
 |   +-- p9_marshal.c          9P wire format marshal/unmarshal
 |   +-- fid_pool.c            FID allocator implementation
@@ -232,64 +234,10 @@ plan, and tested on QEMU-emulated AmigaOne.
 
 ## Version History
 
-### 0.4.0-beta (07 Mar 2026)
-- **chmod support** — `SetProtection` (protect) now works on shared volumes;
-  reads current mode via `P9_Getattr` to preserve file type bits, then merges
-  permission bits via `P9_Setattr(P9_SETATTR_MODE)` (raised by kas1e —
-  [GitHub issue #1](https://github.com/derfsss/Virtio9PFS-handler/issues/1))
-- **chown support** — `uid`/`gid` changes via `P9_Setattr(P9_SETATTR_UID|GID)`
-- **Windows QEMU documentation** — added setup instructions with links to
-  community patches ([arixmkii/qcw](https://github.com/arixmkii/qcw)),
-  working `-fsdev` command line syntax, and `mapped-xattr` notes
-  (raised by kas1e)
-- **ftruncate support** — `ChangeFileSize` on open file handles now works
-  (FBX maps `ACTION_SET_FILE_SIZE` to `ftruncate`, not `truncate`)
-- **21 FUSE callbacks** — up from 18 (added `chmod`, `chown`, `ftruncate`)
-- **Test suite expanded** — new `chmod` test (Test 12), 12/12 tests passing
+See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
-### 0.3.0-beta (02 Mar 2026)
-- **512 KB message size** — increased P9_MSIZE from 64 KB to 512 KB; each
-  P9_Read/Write transfers up to ~512 KB per round-trip (8x fewer transactions)
-- **Cached DMA** — physical addresses resolved once at startup; per-transaction
-  cache coherency via PPC `dcbst` (flush) and `dcbf` (invalidate) instead of
-  10 kernel calls per transaction (`StartDMA`/`GetDMAList`/`EndDMA`)
-- **Zero-copy readdir** — `P9_Readdir` returns pointer into rx_buf, eliminating
-  a memcpy per directory batch
-- **Word-aligned memcpy/memset** — 4-byte bulk transfers in `string_utils.h`
-- **Semaphore removed** — FBX is single-threaded; lock overhead eliminated
-- **Version string in debug output** — startup banner shows handler name and
-  version number
-
-### 0.2.0-beta (02 Mar 2026)
-- **First working release** — Workbench loads, SHARED: volume is browsable
-- Tested on QEMU AmigaOne (legacy VirtIO) only
-- Switched to `_start()` entry point with `-nostartfiles -nodefaultlibs -lgcc`
-  to prevent newlib CRT from consuming the DOS handler startup message
-- Added `string_utils.h` — inline string/memory helpers replacing C stdlib
-  (memset, memcpy, memmove, strlen, strncpy, strcmp, strchr, strrchr)
-- Fixed mount tag garbage: VirtIO config reports tag_len=32 (field size) but
-  actual tag is shorter; now truncates at first null/non-printable byte
-- Replaced Wait()-based VirtIO completion with polled used-ring check — fixes
-  deadlock where FBX's event loop consumed the ISR signal bit
-- Manual library management: IExec from sysbase, explicit OpenLibrary for
-  expansion.library and filesysbox.library
-- Added `install.sh` AmigaOS Shell installer script
-- Added `-D__AMIGAOS4__ -U__USE_INLINE__` to CFLAGS (matching RapidFS pattern)
-
-### 0.1.1 (02 Mar 2026)
-- Separated version strings into `version.h`
-- Added `debug.h` with auto-prefixed `[virtio9p]` DPRINTF macro
-- Added integration test suite (`test/test_9p.c`)
-- Added README.md and CLAUDE.md
-
-### 0.1.0 (02 Mar 2026)
-- Initial implementation
-- Dual-mode VirtIO transport (legacy I/O + modern MMIO)
-- Full 9P2000.L client (Version, Attach, Walk, Clunk, Lopen, Lcreate, Read,
-  Write, Getattr, Setattr, Statfs, Readdir, Mkdir, Unlinkat, Renameat)
-- 18 FUSE callbacks via FileSysBox
-- DMA-safe transport with interrupt-driven completion
-- EVENT_IDX interrupt coalescing
+**Current: 0.5.0-beta** — fsync, symlink, readlink, hard link, Tflush
+timeout recovery, 8 bug fixes, 25 FUSE callbacks, 25 integration tests.
 
 ## License
 

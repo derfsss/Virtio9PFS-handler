@@ -6,8 +6,10 @@
 /*
  * 9P2000.L Protocol Constants and Types
  *
- * All wire fields are little-endian. On big-endian PPC, every multi-byte
- * field must be byte-swapped via __builtin_bswap16/32/64.
+ * All wire fields are little-endian. The marshal/unmarshal helpers in
+ * p9_marshal.c use byte-by-byte extraction which inherently converts
+ * between host byte order and LE on big-endian PPC — no bswap needed.
+ * Do NOT add __builtin_bswap calls; that would double-swap.
  */
 
 #define P9_VERSION_STR  "9P2000.L"
@@ -24,12 +26,20 @@
 #define P9_RLOPEN       13
 #define P9_TLCREATE     14
 #define P9_RLCREATE     15
+#define P9_TSYMLINK     16
+#define P9_RSYMLINK     17
+#define P9_TREADLINK    22
+#define P9_RREADLINK    23
 #define P9_TGETATTR     24
 #define P9_RGETATTR     25
 #define P9_TSETATTR     26
 #define P9_RSETATTR     27
 #define P9_TREADDIR     40
 #define P9_RREADDIR     41
+#define P9_TFSYNC       50
+#define P9_RFSYNC       51
+#define P9_TLINK        70
+#define P9_RLINK        71
 #define P9_TMKDIR       72
 #define P9_RMKDIR       73
 #define P9_TRENAMEAT    74

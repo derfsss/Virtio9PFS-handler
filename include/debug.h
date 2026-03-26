@@ -18,7 +18,7 @@
 #ifdef DEBUG
 #define DPRINTF(fmt, ...) IExec->DebugPrintF(D_PREFIX fmt, ##__VA_ARGS__)
 #else
-#define DPRINTF(...) do { } while (0)
+#define DPRINTF(...) do { if (0) IExec->DebugPrintF(__VA_ARGS__); } while (0)
 #endif
 
 #endif /* DEBUG_H */
