@@ -64,30 +64,29 @@ request type unknown" because the handler has no `chmod` callback.
 
 ---
 
-## v0.5.0 — Pegasos2 Validation + Error Recovery
+## v0.5.0 — Symlinks, Error Recovery, and New Ops
+**Status: DONE** (merged into v0.6.0-beta)
 
-### 1. Pegasos2 hardware validation (modern VirtIO)
-- Test modern VirtIO 1.0 transport on QEMU Pegasos2 (`-M pegasos2`)
-- Validate `stwbrx`/`lwbrx` MMIO path end-to-end
-- Confirm `virtio-9p-pci-non-transitional` device works
-
-### 2. SAM460 testing
-- Test on QEMU SAM460 if available
-- Document any platform-specific quirks
-
-### 3. Error recovery / VirtIO reset
-- Add timeout detection to `V9P_Transact()` polling loop
-- On timeout: VirtIO reset + re-init sequence
-- Graceful error propagation to FBX (return -EIO, not hang)
-
-### 4. Robust mount failure handling
-- Better diagnostics when no VirtIO 9P device found
-- Log PCI scan results even on failure
-- Validate `filesysbox.library` version at startup
+- Symlink / readlink / hard link support — all working
+- fsync callback — FBX flush now syncs to host disk
+- Tflush request cancellation on V9P_Transact timeout
+- 7 bug fixes (buffer over-read, descriptor validation, path depth, etc.)
+- 25 integration tests (up from 12)
 
 ---
 
-## v0.6.0 — Multiple Volumes + Mount Tag Matching
+## v0.6.0-beta — Shutdown Crash Fix
+**Status: DONE**
+
+- Fixed DSI crash on restart/shutdown (reported on AmigaOne and Pegasos II)
+  - Root cause: interrupt handler accessed freed handler state during teardown
+  - Fix: NULL guard in ISR, device quiesced before ISR removal, is_Data
+    nulled inside Disable/Enable section
+- Includes all v0.5.0 features and fixes
+
+---
+
+## v0.7.0 — Multiple Volumes + Mount Tag Matching
 
 ### 1. Multiple mount tag support
 - Match DOSDriver `Control` field to specific VirtIO 9P device's `mount_tag`
@@ -101,26 +100,16 @@ request type unknown" because the handler has no `chmod` callback.
 
 ---
 
-## v0.7.0 — Symlinks + Advanced Filesystem
+## v0.8.0 — File Locking + Advanced Filesystem
 
-### 1. Symlink support
-- 9P2000.L supports `Tsymlink` / `Treadlink`
-- Investigate whether FBX FUSE exposes `readlink` / `symlink` callbacks
-- If FBX supports it: implement `v9p_symlink` + `v9p_readlink`
-- If not: document limitation
-
-### 2. Hard link support
-- 9P2000.L `Tlink` message
-- FBX FUSE `link` callback (if available)
-
-### 3. File locking
+### 1. File locking
 - 9P2000.L `Tlock` / `Tgetlock` messages
 - FBX FUSE `flock` callback (if available)
 - Needed for concurrent access from multiple AmigaOS processes
 
 ---
 
-## v0.8.0 — Performance
+## v0.9.0 — Performance
 
 ### 1. Write-back caching
 - Currently all writes are synchronous to host
