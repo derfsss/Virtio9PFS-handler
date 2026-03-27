@@ -320,6 +320,21 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         DPRINTF("main: FbxSetupFS success, entering event loop.\n");
         IFileSysBox->FbxEventLoop(fs);
         DPRINTF("main: Event loop exited.\n");
+
+        /* Remove ISR from the system chain BEFORE FbxCleanupFS.
+         *
+         * FbxCleanupFS replies to DOS, signaling "handler is done".
+         * During Restart System, the OS may kill this process immediately
+         * after that reply — before our cleanup code at cleanup_irq runs.
+         * The struct Interrupt is on our stack, so if the process is killed,
+         * the ISR chain has a dangling pointer into freed memory.
+         *
+         * V9P_Transact uses polling (not the ISR signal), so any FUSE
+         * callbacks FBX invokes during cleanup still work without the ISR.
+         * V9P_RemoveInterrupt is idempotent — the call at cleanup_irq
+         * becomes a no-op. */
+        V9P_RemoveInterrupt(&handler);
+
         IFileSysBox->FbxCleanupFS(fs);
     } else {
         DPRINTF("main: FbxSetupFS failed!\n");
