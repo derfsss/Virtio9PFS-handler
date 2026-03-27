@@ -4,9 +4,8 @@ Virtio9PFS-handler
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-Status: Beta (v0.6.0) -- tested on QEMU AmigaOne (legacy VirtIO) only.
-Pegasos2 (modern VirtIO) is implemented but not yet validated. Use at your
-own risk.
+Status: Beta (v0.7.0) -- tested on QEMU AmigaOne (legacy VirtIO) and
+Pegasos2 (modern VirtIO). Use at your own risk.
 
 Important: Official QEMU for Windows (x64) does not include -virtfs
 support. However, it can be patched -- see "Windows QEMU Setup" below.
@@ -186,6 +185,17 @@ implementation plan, and tested on QEMU-emulated AmigaOne.
 
 Version History
 ===============
+
+
+0.7.0-beta (27 Mar 2026)
+-------------------------
+
+  Bug fixes:
+  - Fixed shutdown freeze on Restart System -- the ISR was removed after
+    FbxCleanupFS replied to DOS; the OS could kill the process before
+    RemIntServer ran, leaving a dangling ISR chain pointer. The ISR is
+    now detached before FbxCleanupFS.
+    (reported by smarkusg on AmigaOne and Pegasos II)
 
 
 0.6.0-beta (26 Mar 2026)

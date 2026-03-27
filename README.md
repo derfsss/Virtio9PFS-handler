@@ -3,9 +3,8 @@
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-**Status: Beta (v0.6.0)** — tested on QEMU AmigaOne (legacy VirtIO) only.
-Pegasos2 (modern VirtIO) is implemented but not yet validated. Use at your
-own risk.
+**Status: Beta (v0.7.0)** — tested on QEMU AmigaOne (legacy VirtIO) and
+Pegasos2 (modern VirtIO). Use at your own risk.
 
 **Important:** Official QEMU for Windows (x64) does not include `-virtfs`
 support. However, it can be patched — see [Windows QEMU Setup](#windows-qemu-setup)
@@ -236,8 +235,8 @@ plan, and tested on QEMU-emulated AmigaOne.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
-**Current: 0.6.0-beta** — file sync, symlinks, hard links, shutdown crash
-fix, 7 bug fixes, 25 FUSE callbacks, 25 integration tests.
+**Current: 0.7.0-beta** — fix shutdown freeze on Restart System, file sync,
+symlinks, hard links, 25 FUSE callbacks, 25 integration tests.
 
 ## License
 

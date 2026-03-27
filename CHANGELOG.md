@@ -2,6 +2,16 @@
 
 All notable changes to Virtio9PFS-handler are documented here.
 
+## 0.7.0-beta (27 Mar 2026)
+
+### Bug fixes
+- **Fixed shutdown freeze on Restart System** — the interrupt handler was
+  removed from the system chain *after* FbxCleanupFS replied to DOS; during
+  Restart System the OS could kill the handler process before RemIntServer ran,
+  leaving the stack-allocated ISR node dangling in the interrupt chain. The ISR
+  is now detached before FbxCleanupFS.
+  (reported by smarkusg on AmigaOne and Pegasos II)
+
 ## 0.6.0-beta (26 Mar 2026)
 
 ### New features
