@@ -2,6 +2,17 @@
 
 All notable changes to Virtio9PFS-handler are documented here.
 
+## 0.7.1-beta (16 Apr 2026)
+
+### Bug fixes
+- **Fixed crash when flushing files without an open handle** — filesysbox
+  can invoke the fsync callback with a NULL `fuse_file_info` during a
+  general flush (e.g. after `CMD_UPDATE` on an unopened path), and the
+  handler was dereferencing it unconditionally to read `fi->fh`. The
+  resulting page fault on address 0x14 killed the `SHARED` handler
+  process and any filesystem activity on the volume. The fsync callback
+  now treats a NULL `fi` as a no-op and returns success.
+
 ## 0.7.0-beta (27 Mar 2026)
 
 ### Bug fixes
@@ -10,7 +21,7 @@ All notable changes to Virtio9PFS-handler are documented here.
   Restart System the OS could kill the handler process before RemIntServer ran,
   leaving the stack-allocated ISR node dangling in the interrupt chain. The ISR
   is now detached before FbxCleanupFS.
-  (reported by smarkusg on AmigaOne and Pegasos II)
+  (reported on AmigaOne and Pegasos II)
 
 ## 0.6.0-beta (26 Mar 2026)
 
@@ -53,14 +64,12 @@ All notable changes to Virtio9PFS-handler are documented here.
 
 - **Permission support** — `Protect` command now works on shared volumes,
   letting you set file permissions from Workbench or Shell
-  (thanks to kas1e for reporting —
-  [GitHub issue #1](https://github.com/derfsss/Virtio9PFS-handler/issues/1))
+  ([GitHub issue #1](https://github.com/derfsss/Virtio9PFS-handler/issues/1))
 - **Ownership support** — changing file owner and group is now supported
 - **Truncate open files** — `ChangeFileSize` now works on files that are
   already open
 - **Windows QEMU setup guide** — added instructions for getting folder
   sharing working on Windows using community QEMU patches
-  (thanks to kas1e for testing)
 - 12 integration tests passing
 
 ## 0.3.0-beta (02 Mar 2026)

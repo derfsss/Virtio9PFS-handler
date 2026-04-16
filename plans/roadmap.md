@@ -7,9 +7,9 @@ Based on: forum feedback (amigans.net topic 10056), GitHub issue #1
 
 ### Context
 
-Forum user kas1e got `-virtfs` working on patched Windows QEMU (10.2.1),
-discovered `mapped-xattr` stores Unix permissions in NTFS Alternate Data
-Streams, and filed GitHub issue #1: `protect` command fails with "packet
+Received a report that `-virtfs` works on patched Windows QEMU (10.2.1),
+and that `mapped-xattr` stores Unix permissions in NTFS Alternate Data
+Streams. GitHub issue #1 was filed: `protect` command fails with "packet
 request type unknown" because the handler has no `chmod` callback.
 
 ### Tasks

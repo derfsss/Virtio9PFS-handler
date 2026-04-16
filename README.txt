@@ -187,6 +187,19 @@ Version History
 ===============
 
 
+0.7.1-beta (16 Apr 2026)
+-------------------------
+
+  Bug fixes:
+  - Fixed crash when flushing files without an open handle -- filesysbox
+    can call the fsync callback with a NULL file-info pointer during a
+    general flush (e.g. after CMD_UPDATE on an unopened path); the handler
+    was dereferencing it unconditionally to read the 9P fid. The resulting
+    page fault on address 0x14 killed the SHARED handler process. The
+    fsync callback now returns success when no open file handle is
+    attached.
+
+
 0.7.0-beta (27 Mar 2026)
 -------------------------
 
@@ -195,7 +208,7 @@ Version History
     FbxCleanupFS replied to DOS; the OS could kill the process before
     RemIntServer ran, leaving a dangling ISR chain pointer. The ISR is
     now detached before FbxCleanupFS.
-    (reported by smarkusg on AmigaOne and Pegasos II)
+    (reported on AmigaOne and Pegasos II)
 
 
 0.6.0-beta (26 Mar 2026)
@@ -227,7 +240,7 @@ Version History
   - Permission support -- Protect command now works on shared volumes
   - Ownership support -- changing file owner and group is now supported
   - Truncate open files -- ChangeFileSize now works on open files
-  - Windows QEMU setup guide added (thanks to kas1e for testing)
+  - Windows QEMU setup guide added
   - 12 integration tests passing
 
 

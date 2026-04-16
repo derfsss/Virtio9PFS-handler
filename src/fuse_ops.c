@@ -501,10 +501,15 @@ static int v9p_utimens(const char *path, const struct timespec tv[2])
 static int v9p_fsync(const char *path, int datasync, struct fuse_file_info *fi)
 {
     struct V9PHandler *h = g_handler;
-    uint32 fid = (uint32)fi->fh;
 
     (void)path;
 
+    /* filesysbox may invoke fsync during a general flush without an associated
+     * open-file handle. No specific fid → nothing to sync at the 9P level. */
+    if (!fi)
+        return 0;
+
+    uint32 fid = (uint32)fi->fh;
     DPRINTF("fsync: fid=%lu datasync=%d\n", (unsigned long)fid, datasync);
 
     int32 err = P9_Fsync(h, fid, datasync ? 1 : 0);
