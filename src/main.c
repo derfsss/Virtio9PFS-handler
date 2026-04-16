@@ -70,6 +70,20 @@ int32 _start(STRPTR argstring __attribute__((unused)),
 
     IExec->DebugPrintF("[virtio9p] === " VERSION_LOG_STRING " ===\n");
 
+    /* Guard against being run from a CLI shell.  Handlers receive their
+     * startup message via pr_MsgPort (pr_CLI == 0).  If pr_CLI is set,
+     * we were launched from a Shell — print a diagnostic and bail. */
+    {
+        struct Process *earlyProc = (struct Process *)IExec->FindTask(NULL);
+        if (earlyProc->pr_CLI != 0) {
+            IExec->DebugPrintF("[virtio9p] " HANDLER_NAME " cannot be executed "
+                               "from a shell — install to L: with a DOSDriver "
+                               "in DEVS:DOSDrivers/ and reboot.\n");
+            IExec->Release();
+            return RETURN_FAIL;
+        }
+    }
+
     memset(&handler, 0, sizeof(handler));
     g_handler = &handler;
 
