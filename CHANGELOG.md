@@ -2,6 +2,32 @@
 
 All notable changes to Virtio9PFS-handler are documented here.
 
+## 0.8.0-beta (17 Apr 2026)
+
+### New features
+- **Modern VirtIO PCI handshake for transitional devices** — ported the
+  proven 3-step detection pattern from the VirtualSCSIDevice project:
+  1. Zero BAR5 high DWORD if 0xFFFFFFFF (AmigaOne firmware bug workaround)
+  2. Always call V9P_DetectModern() regardless of device ID (was gated to
+     0x1049 only); walks PCI capability chain, then probes MMIO by writing
+     STATUS=ACKNOWLEDGE and reading back; enables PCI_COMMAND_MEMORY +
+     PCI_COMMAND_MASTER before probe
+  3. If MMIO probe fails (Articia S bridge on AmigaOne), fall back to
+     legacy I/O
+
+  This fixed `SHARED:` not mounting on Pegasos2 — the handler was stuck
+  in legacy mode where the MV64361 bridge requires MMIO.
+
+### Test suite
+- **New comprehensive regression suite** — `tools/qemu-regression/stress_suite.py`
+  with 29 checks across 8 tiers: sanity, file I/O integrity (up to 1.5 MB
+  SHA round-trips), directory ops, metadata, concurrency, regression guards,
+  soak, transport confirmation, and native test_9p
+- Validated on all 3 QEMU machines: AmigaOne (27/29), Pegasos2 (28/29),
+  SAM460ex (27/29)
+- 2 expected failures: tier 7.1 (release build has no DPRINTF) and
+  tier 8.1 (chown + ftruncate unsupported under security_model=none)
+
 ## 0.7.1-beta (16 Apr 2026)
 
 ### Bug fixes

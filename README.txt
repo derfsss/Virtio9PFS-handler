@@ -4,8 +4,8 @@ Virtio9PFS-handler
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-Status: Beta (v0.7.0) -- tested on QEMU AmigaOne (legacy VirtIO) and
-Pegasos2 (modern VirtIO). Use at your own risk.
+Status: Beta (v0.8.0) -- tested on QEMU AmigaOne (legacy VirtIO),
+Pegasos2 (modern VirtIO), and SAM460ex. Use at your own risk.
 
 Important: Official QEMU for Windows (x64) does not include -virtfs
 support. However, it can be patched -- see "Windows QEMU Setup" below.
@@ -30,7 +30,7 @@ Features
 - Legacy mode -- I/O BAR access, native big-endian vring fields; tested on
   AmigaOne (Articia S)
 - Modern mode -- MMIO BAR access via stwbrx/lwbrx inline asm, little-endian
-  vring fields; implemented for Pegasos2 (MV64361), not yet tested
+  vring fields; tested on Pegasos2 (MV64361) and SAM460ex
 - FileSysBox FUSE interface -- implements 25 FUSE callbacks; all DOS packet
   handling is done by filesysbox.library v54+
 - Full filesystem operations -- directory listing, file read/write, create,
@@ -58,8 +58,8 @@ Requirements
 - filesysbox.library v54 or newer (included with OS 4.1 FE)
 - QEMU 10.0+ with VirtIO 9P support (Linux, WSL2, macOS, or patched
   Windows -- see "Windows QEMU Setup" below)
-- QEMU emulating a PPC AmigaOS machine (tested on AmigaOne only; Pegasos2
-  and SAM460 are not yet tested)
+- QEMU emulating a PPC AmigaOS machine (tested on AmigaOne, Pegasos2, and
+  SAM460ex)
 
 
 Installation
@@ -185,6 +185,22 @@ implementation plan, and tested on QEMU-emulated AmigaOne.
 
 Version History
 ===============
+
+
+0.8.0-beta (17 Apr 2026)
+-------------------------
+
+  New features:
+  - Modern VirtIO PCI handshake for transitional devices -- ported the
+    3-step detection pattern from VirtualSCSIDevice: zero BAR5 high DWORD
+    workaround, unconditional modern detect with MMIO probe, and automatic
+    fallback to legacy I/O when MMIO fails (Articia S bridge). This fixed
+    SHARED: not mounting on Pegasos2.
+
+  Test suite:
+  - New comprehensive regression suite (stress_suite.py) with 29 checks
+    across 8 tiers; validated on AmigaOne (27/29), Pegasos2 (28/29),
+    SAM460ex (27/29)
 
 
 0.7.1-beta (16 Apr 2026)

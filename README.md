@@ -3,8 +3,8 @@
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-**Status: Beta (v0.7.1)** — tested on QEMU AmigaOne (legacy VirtIO) and
-Pegasos2 (modern VirtIO). Use at your own risk.
+**Status: Beta (v0.8.0)** — tested on QEMU AmigaOne (legacy VirtIO),
+Pegasos2 (modern VirtIO), and SAM460ex. Use at your own risk.
 
 **Important:** Official QEMU for Windows (x64) does not include `-virtfs`
 support. However, it can be patched — see [Windows QEMU Setup](#windows-qemu-setup)
@@ -25,7 +25,7 @@ directly from Workbench or the Shell.
 - **Legacy mode** — I/O BAR access, native big-endian vring fields; tested on
   AmigaOne (Articia S)
 - **Modern mode** — MMIO BAR access via `stwbrx`/`lwbrx` inline asm,
-  little-endian vring fields; implemented for Pegasos2 (MV64361), not yet tested
+  little-endian vring fields; tested on Pegasos2 (MV64361) and SAM460ex
 - **FileSysBox FUSE interface** — implements 25 FUSE callbacks; all DOS packet
   handling is done by `filesysbox.library` v54+
 - **Full filesystem operations** — directory listing, file read/write, create,
@@ -51,8 +51,8 @@ directly from Workbench or the Shell.
 - `filesysbox.library` v54 or newer (included with OS 4.1 FE)
 - QEMU 10.0+ with VirtIO 9P support (Linux, WSL2, macOS, or patched Windows —
   see [Windows QEMU Setup](#windows-qemu-setup))
-- QEMU emulating a PPC AmigaOS machine (tested on AmigaOne only; Pegasos2 and
-  SAM460 are not yet tested)
+- QEMU emulating a PPC AmigaOS machine (tested on AmigaOne, Pegasos2, and
+  SAM460ex)
 
 ## Building
 
@@ -235,9 +235,9 @@ plan, and tested on QEMU-emulated AmigaOne.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
-**Current: 0.7.1-beta** — fix fsync NULL-fi crash when AmigaDOS flushes a
-write without an associated open-file handle. Round-trip file operations
-(copy, rename, delete, write) on the shared volume now complete cleanly.
+**Current: 0.8.0-beta** — modern VirtIO PCI handshake for transitional
+devices (fixes Pegasos2 mounting) plus a comprehensive 29-check regression
+test suite validated on AmigaOne, Pegasos2, and SAM460ex.
 
 ## License
 
