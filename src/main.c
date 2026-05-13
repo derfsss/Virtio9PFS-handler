@@ -45,7 +45,6 @@ static const char *version __attribute__((used)) =
 struct ExecIFace *IExec = NULL;
 
 struct Library *ExpansionBase = NULL;
-struct ExpansionIFace *IExpansion = NULL;
 
 struct Library *FileSysBoxBase = NULL;
 struct FileSysBoxIFace *IFileSysBox = NULL;
@@ -141,10 +140,9 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         ret = RETURN_FAIL;
         goto cleanup_fbx;
     }
-    IExpansion = (struct ExpansionIFace *)IExec->GetInterface(
-        ExpansionBase, "main", 1, NULL);
 
-    /* 4. Get PCI interface from expansion.library */
+    /* 4. Get PCI interface from expansion.library.  The "main" interface
+     * is not used by this handler — we go straight to the "pci" one. */
     handler.IPCI = (struct PCIIFace *)IExec->GetInterface(
         ExpansionBase, "pci", 1, NULL);
 
@@ -159,6 +157,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     if (!V9P_DiscoverDevice(&handler)) {
         DPRINTF("main: No VirtIO 9P device found.\n");
         IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
+        ret = RETURN_FAIL;
         goto cleanup_pci;
     }
 
@@ -171,6 +170,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     if (!V9P_InitVirtIO(&handler)) {
         DPRINTF("main: VirtIO init failed.\n");
         IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
+        ret = RETURN_FAIL;
         goto cleanup_pci;
     }
 
@@ -184,44 +184,17 @@ int32 _start(STRPTR argstring __attribute__((unused)),
                 handler.mount_tag);
     }
 
-    /* 8. Install ISR
+    /* 8. Install ISR.
      *
-     * AllocSignal(-1) returns the highest free bit.  Bits 28-31 are
-     * the SIGBREAKF_CTRL_C/D/E/F break signals.  FBX's FbxEventLoop
-     * waits on break signals — if our IRQ signal lands on one of those
-     * bits, FBX consumes it and V9P_Transact blocks forever.
-     *
-     * Workaround: pre-allocate bits 28-31 to skip them, allocate our
-     * real signal (gets bit ≤27), then free the dummies.
+     * The ISR exists only to read the VirtIO ISR register and de-assert
+     * the device INT line (otherwise QEMU would retrigger it continually).
+     * V9P_Transact polls the used ring — no task signalling involved —
+     * so there is no signal bit to allocate.
      */
-    int8 dummy_sigs[4];
-    int i;
-    for (i = 0; i < 4; i++)
-        dummy_sigs[i] = IExec->AllocSignal(-1);
-
-    int8 sig_bit = IExec->AllocSignal(-1);
-
-    for (i = 0; i < 4; i++) {
-        if (dummy_sigs[i] >= 0)
-            IExec->FreeSignal(dummy_sigs[i]);
-    }
-
-    if (sig_bit < 0) {
-        DPRINTF("main: Failed to allocate signal bit.\n");
-        IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
-        goto cleanup_virtio;
-    }
-
-    DPRINTF("main: IRQ signal bit=%ld mask=0x%08lX\n",
-            (int32)sig_bit, (1UL << sig_bit));
-
-    handler.irq_signal = (1UL << sig_bit);
-    handler.handler_task = IExec->FindTask(NULL);
-
     if (!V9P_InstallInterrupt(&handler)) {
         DPRINTF("main: Failed to install interrupt handler.\n");
-        IExec->FreeSignal(sig_bit);
         IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
+        ret = RETURN_FAIL;
         goto cleanup_virtio;
     }
 
@@ -230,10 +203,16 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         handler.msize, AVT_Type, MEMF_SHARED, AVT_ClearWithValue, 0, TAG_DONE);
     handler.rx_buf = (uint8 *)IExec->AllocVecTags(
         handler.msize, AVT_Type, MEMF_SHARED, AVT_ClearWithValue, 0, TAG_DONE);
+    /* P0-2: dedicated 16-byte buffer for Tflush.  Held throughout
+     * handler lifetime so the timeout path never overwrites a possibly-
+     * still-being-read T-message in tx_buf. */
+    handler.flush_buf = (uint8 *)IExec->AllocVecTags(
+        16, AVT_Type, MEMF_SHARED, AVT_ClearWithValue, 0, TAG_DONE);
 
-    if (!handler.tx_buf || !handler.rx_buf) {
+    if (!handler.tx_buf || !handler.rx_buf || !handler.flush_buf) {
         DPRINTF("main: Failed to allocate DMA buffers.\n");
         IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
+        ret = RETURN_FAIL;
         goto cleanup_irq;
     }
 
@@ -241,7 +220,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
      *
      * StartDMA here just resolves virtual→physical; we EndDMA immediately
      * with DMAF_NoModify (no cache side-effects).  V9P_Transact uses
-     * dcbst/dcbi inline asm for per-transaction cache management instead
+     * dcbst/dcbf inline asm for per-transaction cache management instead
      * of calling StartDMA/EndDMA every time (saves ~10 kernel calls). */
     {
         uint32 n;
@@ -251,12 +230,14 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         if (n == 0) {
             DPRINTF("main: StartDMA(tx) failed.\n");
             IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
+            ret = RETURN_FAIL;
             goto cleanup_bufs;
         }
         if (n > 1) {
             DPRINTF("main: tx_buf physically fragmented (%lu entries) — need contiguous.\n", n);
             IExec->EndDMA(handler.tx_buf, handler.msize, DMA_ReadFromRAM | DMAF_NoModify);
             IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
+            ret = RETURN_FAIL;
             goto cleanup_bufs;
         }
         de = (struct DMAEntry *)IExec->AllocSysObjectTags(
@@ -270,12 +251,14 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         if (n == 0) {
             DPRINTF("main: StartDMA(rx) failed.\n");
             IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
+            ret = RETURN_FAIL;
             goto cleanup_bufs;
         }
         if (n > 1) {
             DPRINTF("main: rx_buf physically fragmented (%lu entries) — need contiguous.\n", n);
             IExec->EndDMA(handler.rx_buf, handler.msize, DMAF_NoModify);
             IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
+            ret = RETURN_FAIL;
             goto cleanup_bufs;
         }
         de = (struct DMAEntry *)IExec->AllocSysObjectTags(
@@ -285,8 +268,23 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         IExec->FreeSysObject(ASOT_DMAENTRY, de);
         IExec->EndDMA(handler.rx_buf, handler.msize, DMAF_NoModify);
 
-        DPRINTF("main: DMA cached tx_phys=0x%08lX rx_phys=0x%08lX\n",
-                handler.tx_phys, handler.rx_phys);
+        /* P0-2: also resolve flush_buf phys */
+        n = IExec->StartDMA(handler.flush_buf, 16, DMA_ReadFromRAM);
+        if (n == 0) {
+            DPRINTF("main: StartDMA(flush) failed.\n");
+            IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
+            ret = RETURN_FAIL;
+            goto cleanup_bufs;
+        }
+        de = (struct DMAEntry *)IExec->AllocSysObjectTags(
+            ASOT_DMAENTRY, ASODMAE_NumEntries, n, TAG_DONE);
+        IExec->GetDMAList(handler.flush_buf, 16, DMA_ReadFromRAM, de);
+        handler.flush_phys = (uint32)de[0].PhysicalAddress;
+        IExec->FreeSysObject(ASOT_DMAENTRY, de);
+        IExec->EndDMA(handler.flush_buf, 16, DMA_ReadFromRAM | DMAF_NoModify);
+
+        DPRINTF("main: DMA cached tx_phys=0x%08lX rx_phys=0x%08lX flush_phys=0x%08lX\n",
+                handler.tx_phys, handler.rx_phys, handler.flush_phys);
     }
 
     /* 10. 9P Version negotiation */
@@ -294,6 +292,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     if (err) {
         DPRINTF("main: P9_Version failed: %ld\n", err);
         IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
+        ret = RETURN_FAIL;
         goto cleanup_bufs;
     }
 
@@ -304,6 +303,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     if (err) {
         DPRINTF("main: P9_Attach failed: %ld\n", err);
         IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
+        ret = RETURN_FAIL;
         goto cleanup_bufs;
     }
 
@@ -315,6 +315,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         DPRINTF("main: Failed to create FID pool.\n");
         P9_Clunk(&handler, handler.root_fid);
         IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
+        ret = RETURN_FAIL;
         goto cleanup_bufs;
     }
 
@@ -361,6 +362,8 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     FidPool_Destroy(handler.fid_pool);
 
 cleanup_bufs:
+    if (handler.flush_buf)
+        IExec->FreeVec(handler.flush_buf);
     if (handler.rx_buf)
         IExec->FreeVec(handler.rx_buf);
     if (handler.tx_buf)
@@ -368,7 +371,6 @@ cleanup_bufs:
 
 cleanup_irq:
     V9P_RemoveInterrupt(&handler);
-    IExec->FreeSignal(sig_bit);
 
 cleanup_virtio:
     V9P_CleanupVirtIO(&handler);
@@ -386,8 +388,6 @@ cleanup_pci:
         IExec->DropInterface((struct Interface *)handler.IPCI);
 
 cleanup_expansion:
-    if (IExpansion)
-        IExec->DropInterface((struct Interface *)IExpansion);
     if (ExpansionBase)
         IExec->CloseLibrary(ExpansionBase);
 
@@ -398,6 +398,10 @@ cleanup_fbx:
         IExec->CloseLibrary(FileSysBoxBase);
 
 cleanup_exec:
+    /* Clear the global before the struct on our stack goes out of scope;
+     * no callback should fire after this point, but don't leave a dangling
+     * pointer to dead stack memory just in case. */
+    g_handler = NULL;
     DPRINTF("main: Shutdown complete.\n");
     IExec->Release();
     return ret;

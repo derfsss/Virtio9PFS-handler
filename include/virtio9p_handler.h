@@ -52,11 +52,11 @@ struct V9PHandler
     struct virtqueue        *vq;          /* Single VQ, index 0 */
     struct SignalSemaphore   vq_lock;     /* Serialize AddBuf+Kick */
 
-    /* ISR */
+    /* ISR — exists solely to read the ISR register and de-assert the device
+     * INT line; V9P_Transact polls the used ring, so no task signalling is
+     * needed. */
     struct Interrupt         irq_handler;
     uint32                   irq_number;
-    struct Task             *handler_task;
-    uint32                   irq_signal;  /* Signal mask for ISR→handler task */
     BOOL                     irq_installed;
 
     /* 9P session */
@@ -70,6 +70,12 @@ struct V9PHandler
     uint8                   *rx_buf;      /* R-message receive buffer (msize bytes) */
     uint32                   tx_phys;     /* Cached physical address of tx_buf */
     uint32                   rx_phys;     /* Cached physical address of rx_buf */
+
+    /* P0-2: dedicated buffer for Tflush messages so the timeout path
+     * never overwrites an in-flight T-message in tx_buf.  Sized for a
+     * Tflush header (size[4]+type[1]+tag[2]+oldtag[2] = 9 bytes). */
+    uint8                   *flush_buf;   /* 16-byte pinned DMA buffer */
+    uint32                   flush_phys;  /* Cached physical address of flush_buf */
 
     /* Config */
     char                     mount_tag[33]; /* From VirtIO config space, null-terminated */

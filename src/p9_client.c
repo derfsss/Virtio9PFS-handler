@@ -171,27 +171,31 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
     if (!ret_cookie) {
         DPRINTF("V9P_Transact: timeout — attempting Tflush for tag\n");
 
-        /* Try to cancel the stalled request with Tflush.
-         * Reuse tx_buf (original request is already sent to device).
-         * Extract the tag from the stalled T-message for the flush. */
+        /* P0-2: build the Tflush in a *dedicated* buffer (h->flush_buf)
+         * so we never overwrite the original T-message in tx_buf — the
+         * device may still be reading it. */
         uint32 flush_off = 0;
-        uint16 stalled_tag = p9_get_u16(h->tx_buf + 5, &flush_off); /* tag at offset 5 */
+        uint16 stalled_tag = expected_tag;  /* exactly the tag we sent */
 
-        flush_off = 0;
-        p9_put_header(h->tx_buf, &flush_off, P9_TFLUSH, p9_next_tag(h));
-        p9_put_u16(h->tx_buf, &flush_off, stalled_tag);
-        p9_finalize(h->tx_buf, flush_off);
+        p9_put_header(h->flush_buf, &flush_off, P9_TFLUSH, p9_next_tag(h));
+        p9_put_u16(h->flush_buf, &flush_off, stalled_tag);
+        p9_finalize(h->flush_buf, flush_off);
 
-        cache_flush(h->tx_buf, flush_off);
+        cache_flush(h->flush_buf, flush_off);
         cache_invalidate(h->rx_buf, h->msize);
 
-        sg[0].len = flush_off;
-        cookie = (void *)h->tx_buf;
-        rc = VirtQueue_AddBuf(IExec, vq, sg, 1, 1, cookie);
+        struct vring_sg fsg[2];
+        fsg[0].addr = h->flush_phys;
+        fsg[0].len  = flush_off;
+        fsg[1].addr = h->rx_phys;
+        fsg[1].len  = h->msize;
+
+        cookie = (void *)h->flush_buf;
+        rc = VirtQueue_AddBuf(IExec, vq, fsg, 1, 1, cookie);
         if (rc >= 0) {
             VirtQueue_Kick(IExec, vq, pciDev, h->iobase);
 
-            /* Drain up to 2 responses (stalled R-message + Rflush) */
+            /* Drain up to 2 responses (stalled R-message + Rflush). */
             uint32 drain;
             for (drain = 0; drain < 2; drain++) {
                 poll_count = 0;
