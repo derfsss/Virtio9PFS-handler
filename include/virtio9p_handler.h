@@ -77,6 +77,14 @@ struct V9PHandler
     uint8                   *flush_buf;   /* 16-byte pinned DMA buffer */
     uint32                   flush_phys;  /* Cached physical address of flush_buf */
 
+    /* P1-3: keep StartDMA active for tx/rx/flush throughout buffer
+     * lifetime so cached phys addresses remain SDK-contractually valid.
+     * Set TRUE after a successful StartDMA, used by cleanup to know
+     * which EndDMA calls to issue. */
+    BOOL                     tx_dma_active;
+    BOOL                     rx_dma_active;
+    BOOL                     flush_dma_active;
+
     /* Config */
     char                     mount_tag[33]; /* From VirtIO config space, null-terminated */
 };

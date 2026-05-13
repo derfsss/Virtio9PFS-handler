@@ -216,12 +216,18 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         goto cleanup_irq;
     }
 
-    /* 9b. Resolve physical addresses for DMA (one-time, cached).
+    /* 9b. Resolve physical addresses for DMA — and KEEP the StartDMA
+     * regions live for the buffer lifetime.
      *
-     * StartDMA here just resolves virtual→physical; we EndDMA immediately
-     * with DMAF_NoModify (no cache side-effects).  V9P_Transact uses
-     * dcbst/dcbf inline asm for per-transaction cache management instead
-     * of calling StartDMA/EndDMA every time (saves ~10 kernel calls). */
+     * P1-3: per the SDK autodoc for StartDMA, "the mapping will not
+     * change as long as EndDMA is not called".  We therefore defer the
+     * matching EndDMA to cleanup_bufs — this guarantees that the
+     * cached tx_phys/rx_phys/flush_phys remain valid even under host
+     * memory pressure or page compaction.
+     *
+     * V9P_Transact uses PPC dcbst/dcbf inline asm for per-transaction
+     * cache management instead of calling CachePostDMA every time
+     * (saves ~10 kernel calls per transact). */
     {
         uint32 n;
         struct DMAEntry *de;
@@ -245,7 +251,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         IExec->GetDMAList(handler.tx_buf, handler.msize, DMA_ReadFromRAM, de);
         handler.tx_phys = (uint32)de[0].PhysicalAddress;
         IExec->FreeSysObject(ASOT_DMAENTRY, de);
-        IExec->EndDMA(handler.tx_buf, handler.msize, DMA_ReadFromRAM | DMAF_NoModify);
+        handler.tx_dma_active = TRUE;          /* P1-3: defer EndDMA */
 
         n = IExec->StartDMA(handler.rx_buf, handler.msize, 0);
         if (n == 0) {
@@ -266,7 +272,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         IExec->GetDMAList(handler.rx_buf, handler.msize, 0, de);
         handler.rx_phys = (uint32)de[0].PhysicalAddress;
         IExec->FreeSysObject(ASOT_DMAENTRY, de);
-        IExec->EndDMA(handler.rx_buf, handler.msize, DMAF_NoModify);
+        handler.rx_dma_active = TRUE;          /* P1-3: defer EndDMA */
 
         /* P0-2: also resolve flush_buf phys */
         n = IExec->StartDMA(handler.flush_buf, 16, DMA_ReadFromRAM);
@@ -281,9 +287,9 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         IExec->GetDMAList(handler.flush_buf, 16, DMA_ReadFromRAM, de);
         handler.flush_phys = (uint32)de[0].PhysicalAddress;
         IExec->FreeSysObject(ASOT_DMAENTRY, de);
-        IExec->EndDMA(handler.flush_buf, 16, DMA_ReadFromRAM | DMAF_NoModify);
+        handler.flush_dma_active = TRUE;       /* P1-3: defer EndDMA */
 
-        DPRINTF("main: DMA cached tx_phys=0x%08lX rx_phys=0x%08lX flush_phys=0x%08lX\n",
+        DPRINTF("main: DMA cached tx_phys=0x%08lX rx_phys=0x%08lX flush_phys=0x%08lX (held open)\n",
                 handler.tx_phys, handler.rx_phys, handler.flush_phys);
     }
 
@@ -362,6 +368,13 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     FidPool_Destroy(handler.fid_pool);
 
 cleanup_bufs:
+    /* P1-3: matching EndDMA for each successful StartDMA we left live. */
+    if (handler.flush_dma_active)
+        IExec->EndDMA(handler.flush_buf, 16, DMA_ReadFromRAM | DMAF_NoModify);
+    if (handler.rx_dma_active)
+        IExec->EndDMA(handler.rx_buf, handler.msize, DMAF_NoModify);
+    if (handler.tx_dma_active)
+        IExec->EndDMA(handler.tx_buf, handler.msize, DMA_ReadFromRAM | DMAF_NoModify);
     if (handler.flush_buf)
         IExec->FreeVec(handler.flush_buf);
     if (handler.rx_buf)
