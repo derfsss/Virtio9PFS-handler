@@ -3,6 +3,8 @@
 #include "virtio/virtio_pci.h"
 #include "virtio/virtqueue.h"
 #include "virtio9p_handler.h"
+#include "p9_client.h"
+#include "fid_pool.h"
 
 /* Forward declaration */
 static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler);
@@ -336,4 +338,69 @@ void V9P_CleanupVirtIO(struct V9PHandler *handler)
         VirtQueue_Free(IExec, handler->vq);
         handler->vq = NULL;
     }
+}
+
+/* P1-5 — full transport reset.  Used to recover from transport-level
+ * corruption that the per-request Tflush in V9P_Transact can't fix:
+ *
+ *   1. Set the in-reset reentry guard so V9P_Transact's timeout path
+ *      doesn't recurse back into V9P_Reset on the rehandshake's own
+ *      Tversion/Tattach packets.
+ *   2. Tear down the virtqueue (also sends VIRTIO STATUS=0 reset).
+ *   3. Re-init the virtqueue (re-runs feature negotiation + DRIVER_OK).
+ *   4. Reset the 9P session: next_tag=1, then Tversion + Tattach.
+ *   5. Clear the FID pool.  Outstanding fids on the server are now
+ *      gone; FBX callbacks operating on them will get -EBADF until they
+ *      retry.  P1-6 will refine this with proper "orphan" tracking. */
+BOOL V9P_Reset(struct V9PHandler *handler)
+{
+    if (handler->in_reset) {
+        DPRINTF("[virtio9p] V9P_Reset: re-entry refused\n");
+        return FALSE;
+    }
+    handler->in_reset = TRUE;
+    DPRINTF("[virtio9p] V9P_Reset: starting transport reset\n");
+
+    BOOL ok = TRUE;
+
+    V9P_CleanupVirtIO(handler);
+
+    if (!V9P_InitVirtIO(handler)) {
+        DPRINTF("[virtio9p] V9P_Reset: V9P_InitVirtIO failed\n");
+        ok = FALSE;
+        goto done;
+    }
+
+    /* Re-establish the 9P session.  msize is whatever we last
+     * negotiated — P9_Version will renegotiate and overwrite it. */
+    handler->next_tag = 1;
+    int32 err = P9_Version(handler);
+    if (err) {
+        DPRINTF("[virtio9p] V9P_Reset: P9_Version failed: %ld\n", err);
+        ok = FALSE;
+        goto done;
+    }
+    err = P9_Attach(handler, handler->root_fid);
+    if (err) {
+        DPRINTF("[virtio9p] V9P_Reset: P9_Attach failed: %ld\n", err);
+        ok = FALSE;
+        goto done;
+    }
+
+    /* Reset FID pool — outstanding fids are gone server-side. */
+    if (handler->fid_pool) {
+        FidPool_Destroy(handler->fid_pool);
+        handler->fid_pool = FidPool_Create();
+        if (!handler->fid_pool) {
+            DPRINTF("[virtio9p] V9P_Reset: FidPool_Create failed\n");
+            ok = FALSE;
+            goto done;
+        }
+    }
+
+    DPRINTF("[virtio9p] V9P_Reset: complete OK\n");
+
+done:
+    handler->in_reset = FALSE;
+    return ok;
 }

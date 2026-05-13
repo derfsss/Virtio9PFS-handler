@@ -85,6 +85,11 @@ struct V9PHandler
     BOOL                     rx_dma_active;
     BOOL                     flush_dma_active;
 
+    /* P1-5: in-reset reentry guard.  Set TRUE while V9P_Reset is
+     * executing so that V9P_Transact does NOT re-escalate to another
+     * reset on a transaction that V9P_Reset itself issues. */
+    BOOL                     in_reset;
+
     /* Config */
     char                     mount_tag[33]; /* From VirtIO config space, null-terminated */
 };
