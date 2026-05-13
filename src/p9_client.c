@@ -363,7 +363,33 @@ int32 P9_Walk(struct V9PHandler *h, uint32 fid, uint32 newfid, const char *path)
     if (rx_len == 0)
         return -5;
 
-    return p9_check_error(h->rx_buf, rx_len);
+    int32 err = p9_check_error(h->rx_buf, rx_len);
+    if (err)
+        return err;
+
+    /* P1-4: validate the Rwalk has nwqid == nwname.  9P2000.L allows the
+     * server to return a *partial* Rwalk if some elements fail mid-path;
+     * newfid is then bound to the partial path and we'd silently operate
+     * on the wrong directory.  Treat any short walk as ENOENT and best-
+     * effort clunk newfid to release server-side state. */
+    err = p9_require_size(rx_len, P9_RHDR_SIZE + 2);  /* +nwqid */
+    if (err)
+        return err;
+    uint32 roff = 7;
+    uint16 nwqid = p9_get_u16(h->rx_buf, &roff);
+    if (nwqid != nwname) {
+        DPRINTF("P9_Walk: partial walk nwqid=%u nwname=%u — treating as ENOENT\n",
+                (uint32)nwqid, (uint32)nwname);
+        /* Best-effort clunk; if newfid is bound to the partial path the
+         * server will release it.  If newfid was never bound (full
+         * failure with nwqid=0 and an Rlerror is what we usually see in
+         * that case — handled above), Tclunk returns Rlerror EBADF. */
+        if (nwqid > 0)
+            (void)P9_Clunk(h, newfid);
+        return -2;  /* ENOENT */
+    }
+
+    return 0;
 }
 
 int32 P9_Clunk(struct V9PHandler *h, uint32 fid)
