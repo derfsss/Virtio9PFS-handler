@@ -119,6 +119,12 @@ BOOL V9P_InitVirtIO(struct V9PHandler *handler)
     DPRINTF("InitVirtIO: Queue 0 configured, phys=0x%08lX PFN=0x%08lX\n",
             phys_addr, pfn);
 
+    /* P3-11: handler is purely polled -- ask the device not to interrupt
+     * us.  When EVENT_IDX is negotiated the device ignores this flag and
+     * uses used_event instead; P3-12 drops EVENT_IDX from our feature
+     * mask so this flag becomes effective. */
+    vq->avail->flags = vr16(FALSE, VRING_AVAIL_F_NO_INTERRUPT);
+
     /* DRIVER_OK */
     pciDev->OutByte(iobase + VIRTIO_PCI_STATUS,
                     VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_DRIVER_OK);
@@ -275,6 +281,10 @@ static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler)
 
     DPRINTF("InitVirtIO_Modern: Q0 desc=0x%08lX avail=0x%08lX used=0x%08lX notify=0x%08lX\n",
             desc_phys, vq->avail_phys, vq->used_phys, vq->notify_addr);
+
+    /* P3-11: handler is purely polled -- ask the device not to interrupt
+     * us.  See the legacy path for the EVENT_IDX caveat. */
+    vq->avail->flags = vr16(TRUE, VRING_AVAIL_F_NO_INTERRUPT);
 
     /* DRIVER_OK */
     mmio_w8(pciDev, base + VIRTIO_PCI_COMMON_STATUS,
