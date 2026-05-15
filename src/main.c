@@ -165,7 +165,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
             handler.modern_mode ? "MODERN" : "LEGACY");
 
     /* 6. Initialize VirtIO transport (legacy or modern).  vq_lock was
-     * removed in P3-13 -- FBX runs a single-threaded event loop, so no
+     * removed -- FBX runs a single-threaded event loop, so no
      * AddBuf/Kick concurrency to serialize. */
     if (!V9P_InitVirtIO(&handler)) {
         DPRINTF("main: VirtIO init failed.\n");
@@ -203,7 +203,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         handler.msize, AVT_Type, MEMF_SHARED, AVT_ClearWithValue, 0, TAG_DONE);
     handler.rx_buf = (uint8 *)IExec->AllocVecTags(
         handler.msize, AVT_Type, MEMF_SHARED, AVT_ClearWithValue, 0, TAG_DONE);
-    /* P0-2: dedicated 16-byte buffer for Tflush.  Held throughout
+    /* Dedicated 16-byte buffer for Tflush.  Held throughout
      * handler lifetime so the timeout path never overwrites a possibly-
      * still-being-read T-message in tx_buf. */
     handler.flush_buf = (uint8 *)IExec->AllocVecTags(
@@ -219,7 +219,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     /* 9b. Resolve physical addresses for DMA -- and KEEP the StartDMA
      * regions live for the buffer lifetime.
      *
-     * P1-3: per the SDK autodoc for StartDMA, "the mapping will not
+     * Per the SDK autodoc for StartDMA, "the mapping will not
      * change as long as EndDMA is not called".  We therefore defer the
      * matching EndDMA to cleanup_bufs -- this guarantees that the
      * cached tx_phys/rx_phys/flush_phys remain valid even under host
@@ -251,7 +251,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         IExec->GetDMAList(handler.tx_buf, handler.msize, DMA_ReadFromRAM, de);
         handler.tx_phys = (uint32)de[0].PhysicalAddress;
         IExec->FreeSysObject(ASOT_DMAENTRY, de);
-        handler.tx_dma_active = TRUE;          /* P1-3: defer EndDMA */
+        handler.tx_dma_active = TRUE;          /* defer EndDMA */
 
         n = IExec->StartDMA(handler.rx_buf, handler.msize, 0);
         if (n == 0) {
@@ -272,9 +272,9 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         IExec->GetDMAList(handler.rx_buf, handler.msize, 0, de);
         handler.rx_phys = (uint32)de[0].PhysicalAddress;
         IExec->FreeSysObject(ASOT_DMAENTRY, de);
-        handler.rx_dma_active = TRUE;          /* P1-3: defer EndDMA */
+        handler.rx_dma_active = TRUE;          /* defer EndDMA */
 
-        /* P0-2: also resolve flush_buf phys */
+        /* Also resolve flush_buf phys */
         n = IExec->StartDMA(handler.flush_buf, 16, DMA_ReadFromRAM);
         if (n == 0) {
             DPRINTF("main: StartDMA(flush) failed.\n");
@@ -287,7 +287,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         IExec->GetDMAList(handler.flush_buf, 16, DMA_ReadFromRAM, de);
         handler.flush_phys = (uint32)de[0].PhysicalAddress;
         IExec->FreeSysObject(ASOT_DMAENTRY, de);
-        handler.flush_dma_active = TRUE;       /* P1-3: defer EndDMA */
+        handler.flush_dma_active = TRUE;       /* defer EndDMA */
 
         DPRINTF("main: DMA cached tx_phys=0x%08lX rx_phys=0x%08lX flush_phys=0x%08lX (held open)\n",
                 handler.tx_phys, handler.rx_phys, handler.flush_phys);
@@ -368,7 +368,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     FidPool_Destroy(handler.fid_pool);
 
 cleanup_bufs:
-    /* P1-3: matching EndDMA for each successful StartDMA we left live. */
+    /* Matching EndDMA for each successful StartDMA we left live. */
     if (handler.flush_dma_active)
         IExec->EndDMA(handler.flush_buf, 16, DMA_ReadFromRAM | DMAF_NoModify);
     if (handler.rx_dma_active)

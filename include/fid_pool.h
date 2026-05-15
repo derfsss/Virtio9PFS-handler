@@ -19,7 +19,7 @@ struct FidPool {
     uint32  free_count;        /* Number of fids on the free list */
     uint32  free_capacity;     /* Allocated capacity of free_list */
 
-    /* P1-6 -- orphan list.  FIDs whose server-side state is uncertain
+    /* Orphan list.  FIDs whose server-side state is uncertain
      * (we sent Twalk/Tlcreate, the transport timed out, the server
      * MAY have allocated the fid).  Never handed out until reclaimed.
      * Today we just leak them; a future revision can periodically send
@@ -34,7 +34,7 @@ void            FidPool_Destroy(struct FidPool *pool);
 uint32          FidPool_Alloc(struct FidPool *pool);
 void            FidPool_Free(struct FidPool *pool, uint32 fid);
 
-/* P1-6 -- mark fid as server-state-unknown.  Pool will not hand it out
+/* Mark fid as server-state-unknown.  Pool will not hand it out
  * via Alloc until a future reclaim succeeds.  Use this instead of
  * FidPool_Free when V9P_Transact returns EIO for a Twalk/Tlcreate. */
 void            FidPool_MarkOrphan(struct FidPool *pool, uint32 fid);

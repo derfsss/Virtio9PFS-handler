@@ -31,7 +31,7 @@ BOOL V9P_InitVirtIO(struct V9PHandler *handler)
 
     DPRINTF("InitVirtIO: Legacy init at I/O 0x%08lX\n", iobase);
 
-    /* Reset -- spec requires polling until status reads 0 (P2-8). */
+    /* Reset -- spec requires polling until status reads 0. */
     pciDev->OutByte(iobase + VIRTIO_PCI_STATUS, 0x00);
     {
         uint32 tries = 0;
@@ -59,10 +59,10 @@ BOOL V9P_InitVirtIO(struct V9PHandler *handler)
     uint32 host_features = pciDev->InLong(iobase + VIRTIO_PCI_HOST_FEATURES);
     DPRINTF("InitVirtIO: Host features: 0x%08lX\n", host_features);
 
-    /* P3-12: only accept MOUNT_TAG.  We previously negotiated EVENT_IDX
+    /* Only accept MOUNT_TAG.  We previously negotiated EVENT_IDX
      * but never honoured `avail_event` for kick suppression -- and as
-     * long as EVENT_IDX is on, the device ignores VRING_AVAIL_F_NO_INTERRUPT
-     * (P3-11).  Dropping EVENT_IDX makes NO_INTERRUPT effective for our
+     * long as EVENT_IDX is on, the device ignores VRING_AVAIL_F_NO_INTERRUPT.
+     * Dropping EVENT_IDX makes NO_INTERRUPT effective for our
      * polled handler. */
     uint32 guest_features = host_features & VIRTIO_9P_F_MOUNT_TAG;
     BOOL use_event_idx = FALSE;
@@ -123,9 +123,9 @@ BOOL V9P_InitVirtIO(struct V9PHandler *handler)
     DPRINTF("InitVirtIO: Queue 0 configured, phys=0x%08lX PFN=0x%08lX\n",
             phys_addr, pfn);
 
-    /* P3-11: handler is purely polled -- ask the device not to interrupt
+    /* Handler is purely polled -- ask the device not to interrupt
      * us.  When EVENT_IDX is negotiated the device ignores this flag and
-     * uses used_event instead; P3-12 drops EVENT_IDX from our feature
+     * uses used_event instead; we drop EVENT_IDX from the feature
      * mask so this flag becomes effective. */
     vq->avail->flags = vr16(FALSE, VRING_AVAIL_F_NO_INTERRUPT);
 
@@ -192,7 +192,7 @@ static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler)
     DPRINTF("InitVirtIO_Modern: Device features hi=0x%08lX lo=0x%08lX\n",
             dev_feat_hi, dev_feat_lo);
 
-    /* P3-12: only accept MOUNT_TAG (lo) + VERSION_1 (hi).  EVENT_IDX
+    /* Only accept MOUNT_TAG (lo) + VERSION_1 (hi).  EVENT_IDX
      * dropped -- see legacy path. */
     uint32 drv_feat_lo = dev_feat_lo & VIRTIO_9P_F_MOUNT_TAG;
     uint32 drv_feat_hi = dev_feat_hi & 1UL; /* VIRTIO_F_VERSION_1 */
@@ -203,7 +203,7 @@ static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler)
     mmio_w32(pciDev, base + VIRTIO_PCI_COMMON_DFSELECTG, 1);
     mmio_w32(pciDev, base + VIRTIO_PCI_COMMON_DFG, drv_feat_hi);
 
-    BOOL use_event_idx = FALSE;  /* P3-12: dropped from feature mask */
+    BOOL use_event_idx = FALSE;  /* dropped from feature mask */
 
     /* FEATURES_OK */
     mmio_w8(pciDev, base + VIRTIO_PCI_COMMON_STATUS,
@@ -287,7 +287,7 @@ static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler)
     DPRINTF("InitVirtIO_Modern: Q0 desc=0x%08lX avail=0x%08lX used=0x%08lX notify=0x%08lX\n",
             desc_phys, vq->avail_phys, vq->used_phys, vq->notify_addr);
 
-    /* P3-11: handler is purely polled -- ask the device not to interrupt
+    /* Handler is purely polled -- ask the device not to interrupt
      * us.  See the legacy path for the EVENT_IDX caveat. */
     vq->avail->flags = vr16(TRUE, VRING_AVAIL_F_NO_INTERRUPT);
 
@@ -368,7 +368,7 @@ void V9P_CleanupVirtIO(struct V9PHandler *handler)
     }
 }
 
-/* P1-5 -- full transport reset.  Used to recover from transport-level
+/* Full transport reset.  Used to recover from transport-level
  * corruption that the per-request Tflush in V9P_Transact can't fix:
  *
  *   1. Set the in-reset reentry guard so V9P_Transact's timeout path
@@ -379,7 +379,7 @@ void V9P_CleanupVirtIO(struct V9PHandler *handler)
  *   4. Reset the 9P session: next_tag=1, then Tversion + Tattach.
  *   5. Clear the FID pool.  Outstanding fids on the server are now
  *      gone; FBX callbacks operating on them will get -EBADF until they
- *      retry.  P1-6 will refine this with proper "orphan" tracking. */
+ *      retry.  Orphan tracking refines this in FidPool_MarkOrphan. */
 BOOL V9P_Reset(struct V9PHandler *handler)
 {
     if (handler->in_reset) {

@@ -73,12 +73,12 @@ void FidPool_Free(struct FidPool *pool, uint32 fid)
     pool->free_count++;
 }
 
-/* P1-6 -- mark fid as server-state-unknown.  Pool will not hand it out
+/* Mark fid as server-state-unknown.  Pool will not hand it out
  * via FidPool_Alloc until reclaim.  Today reclaim happens only at
  * Destroy (via free of the orphan_list); a future commit can periodically
  * Tclunk these and recycle them.  Until then, orphans accumulate at a
  * rate proportional to the transport-error rate, which should be ~0
- * after P0-1+P0-2+P1-3.  If list growth fails, fid is leaked. */
+ * given the tag/flush/DMA-pinning fixes.  If list growth fails, fid is leaked. */
 void FidPool_MarkOrphan(struct FidPool *pool, uint32 fid)
 {
     if (!pool->orphan_list) {

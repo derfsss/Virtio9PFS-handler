@@ -75,7 +75,7 @@ static int32 walk_to(struct V9PHandler *h, const char *path, uint32 *out_fid)
     uint32 fid = FidPool_Alloc(h->fid_pool);
     int32 err = P9_Walk(h, h->root_fid, fid, path);
     if (err) {
-        /* P1-6: on transport error (-EIO from V9P_Transact timeout) the
+        /* On transport error (-EIO from V9P_Transact timeout) the
          * server may have allocated this fid.  Mark it orphan so we
          * don't reuse it and trip a server-side EBADF later.  For real
          * 9P-level errors (ENOENT, EACCES...) the fid is definitely free

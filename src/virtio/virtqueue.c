@@ -160,7 +160,7 @@ int32 VirtQueue_AddBuf(struct ExecIFace *IExec, struct virtqueue *vq,
     uint16 avail_idx = vr16(vq->modern, vq->avail->idx);
     vq->avail->ring[avail_idx % vq->num] = vr16(vq->modern, head);
 
-    /* P2-9: cacheable RAM shared with a DMA-capable device -- the
+    /* Cacheable RAM shared with a DMA-capable device -- the
      * canonical VirtIO Linux fence here is lwsync (orders the
      * ring[N]= store before the idx= store).  eieio is for I/O space
      * and was a misuse of the barrier.  sync in Kick is still the
@@ -247,7 +247,7 @@ void *VirtQueue_GetBuf(struct ExecIFace *IExec, struct virtqueue *vq, uint32 *le
 
     if (vq->use_event_idx) {
         vq->avail->ring[vq->num] = vr16(vq->modern, vq->last_used_idx);
-        /* P2-9: lwsync, not eieio -- this is cacheable RAM. */
+        /* lwsync, not eieio -- this is cacheable RAM. */
         __asm__ volatile("lwsync" ::: "memory");
     }
 

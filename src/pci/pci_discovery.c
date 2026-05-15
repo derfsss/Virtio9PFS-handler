@@ -75,7 +75,7 @@ BOOL V9P_DiscoverDevice(struct V9PHandler *handler)
         const char *bar0_type = (handler->bar0->Flags & PCI_RANGE_IO) ? "I/O" : "MEM";
         DPRINTF("PCI_Discovery: BAR0 (%s) Physical=0x%08lX Size=%lu\n",
                 bar0_type, handler->bar0->Physical, handler->bar0->Size);
-        /* P2-10 -- Cache legacy iobase up-front; used by the legacy
+        /* Cache legacy iobase up-front; used by the legacy
          * VirtIO PCI accessor methods (InByte/OutByte/etc.) if the
          * modern MMIO probe fails.
          *

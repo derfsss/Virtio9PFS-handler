@@ -4,10 +4,10 @@
 #include "virtio/virtio_pci.h"
 #include <proto/exec.h>
 #include <exec/memory.h>
-#include <exec/exectags.h>     /* P2-7: GCIT_TimebaseFrequency */
+#include <exec/exectags.h>     /* GCIT_TimebaseFrequency */
 #include "string_utils.h"
 
-/* P2-7: wall-clock timeout for V9P_Transact's poll loop.
+/* Wall-clock timeout for V9P_Transact's poll loop.
  * 10 seconds is generous for QEMU under host load and short enough
  * that a true device hang (rare) escalates promptly. */
 #define V9P_TRANSACT_TIMEOUT_SEC  10
@@ -122,7 +122,7 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
     struct virtqueue *vq = h->vq;
     struct PCIDevice *pciDev = h->pciDevice;
 
-    /* P0-1: capture expected tag from the T-message we are about to
+    /* Capture expected tag from the T-message we are about to
      * send.  Every R-message must carry the same tag.  Any response
      * whose tag does not match is a stale reply from a prior aborted
      * (Tflush'd) request; drop it and keep polling.  This is what
@@ -163,7 +163,7 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
     uint32 written = 0;
     void *ret_cookie = NULL;
     uint32 poll_count = 0;
-    /* P2-7: wall-clock timeout via PPC time-base register.  Independent
+    /* Wall-clock timeout via PPC time-base register.  Independent
      * of CPU speed and debug-build serial chatter -- exactly 10 seconds
      * on every machine.  We sample TB every V9P_TRANSACT_CLOCK_CHECK_MASK+1
      * iterations; the read is user-mode, no kernel call. */
@@ -173,7 +173,7 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
     while (1) {
         ret_cookie = VirtQueue_GetBuf(IExec, vq, &written);
         if (ret_cookie) {
-            /* P0-1 -- validate the response actually belongs to us before
+            /* Validate the response actually belongs to us before
              * exiting the poll loop.  Invalidate the header cache lines
              * so tag/size are read fresh from RAM. */
             cache_invalidate(h->rx_buf, 32);
@@ -219,7 +219,7 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
     if (!ret_cookie) {
         DPRINTF("V9P_Transact: timeout -- attempting Tflush for tag\n");
 
-        /* P0-2: build the Tflush in a *dedicated* buffer (h->flush_buf)
+        /* Build the Tflush in a *dedicated* buffer (h->flush_buf)
          * so we never overwrite the original T-message in tx_buf -- the
          * device may still be reading it. */
         uint32 flush_off = 0;
@@ -372,7 +372,7 @@ int32 P9_Walk(struct V9PHandler *h, uint32 fid, uint32 newfid, const char *path)
 {
     uint8 *buf = h->tx_buf;
 
-    /* P3-14: reject paths longer than our component-buffer.  Without
+    /* Reject paths longer than our component-buffer.  Without
      * this strncpy silently truncates and we'd walk a corrupted path. */
     char pathbuf[1024];
     if (strlen(path) >= sizeof(pathbuf)) {
@@ -430,7 +430,7 @@ int32 P9_Walk(struct V9PHandler *h, uint32 fid, uint32 newfid, const char *path)
     if (err)
         return err;
 
-    /* P1-4: validate the Rwalk has nwqid == nwname.  9P2000.L allows the
+    /* Validate the Rwalk has nwqid == nwname.  9P2000.L allows the
      * server to return a *partial* Rwalk if some elements fail mid-path;
      * newfid is then bound to the partial path and we'd silently operate
      * on the wrong directory.  Treat any short walk as ENOENT and best-
