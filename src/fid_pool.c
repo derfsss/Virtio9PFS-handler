@@ -32,6 +32,8 @@ void FidPool_Destroy(struct FidPool *pool)
         return;
     if (pool->free_list)
         IExec->FreeVec(pool->free_list);
+    if (pool->orphan_list)
+        IExec->FreeVec(pool->orphan_list);
     IExec->FreeVec(pool);
 }
 
@@ -69,4 +71,42 @@ void FidPool_Free(struct FidPool *pool, uint32 fid)
 
     pool->free_list[pool->free_count] = fid;
     pool->free_count++;
+}
+
+/* P1-6 -- mark fid as server-state-unknown.  Pool will not hand it out
+ * via FidPool_Alloc until reclaim.  Today reclaim happens only at
+ * Destroy (via free of the orphan_list); a future commit can periodically
+ * Tclunk these and recycle them.  Until then, orphans accumulate at a
+ * rate proportional to the transport-error rate, which should be ~0
+ * after P0-1+P0-2+P1-3.  If list growth fails, fid is leaked. */
+void FidPool_MarkOrphan(struct FidPool *pool, uint32 fid)
+{
+    if (!pool->orphan_list) {
+        pool->orphan_list = (uint32 *)IExec->AllocVecTags(
+            sizeof(uint32) * FID_POOL_INITIAL_CAPACITY,
+            AVT_Type, MEMF_PRIVATE, TAG_DONE);
+        if (!pool->orphan_list)
+            return;
+        pool->orphan_capacity = FID_POOL_INITIAL_CAPACITY;
+        pool->orphan_count = 0;
+    }
+    if (pool->orphan_count >= pool->orphan_capacity) {
+        uint32 new_cap = pool->orphan_capacity * 2;
+        uint32 *new_list = (uint32 *)IExec->AllocVecTags(
+            sizeof(uint32) * new_cap, AVT_Type, MEMF_PRIVATE, TAG_DONE);
+        if (!new_list)
+            return;
+        uint32 i;
+        for (i = 0; i < pool->orphan_count; i++)
+            new_list[i] = pool->orphan_list[i];
+        IExec->FreeVec(pool->orphan_list);
+        pool->orphan_list = new_list;
+        pool->orphan_capacity = new_cap;
+    }
+    pool->orphan_list[pool->orphan_count++] = fid;
+}
+
+uint32 FidPool_OrphanCount(const struct FidPool *pool)
+{
+    return pool ? pool->orphan_count : 0;
 }

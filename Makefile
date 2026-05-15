@@ -1,6 +1,9 @@
 CC = ppc-amigaos-gcc
 STRIP = ppc-amigaos-strip
-CFLAGS_COMMON = -Wall -D__AMIGAOS4__ -U__USE_INLINE__ -I./include -fno-tree-loop-distribute-patterns
+# -MMD -MP emits .d files alongside each .o so editing a header forces
+# the right TUs to recompile on the next make (avoids stale-object bugs
+# when struct layouts change in headers).
+CFLAGS_COMMON = -Wall -D__AMIGAOS4__ -U__USE_INLINE__ -I./include -fno-tree-loop-distribute-patterns -MMD -MP
 CFLAGS = $(CFLAGS_COMMON) -O2 -ffunction-sections -fdata-sections
 CFLAGS_DEBUG = $(CFLAGS_COMMON) -O2 -DDEBUG
 LDFLAGS = -nostartfiles -nodefaultlibs -lgcc
@@ -85,3 +88,7 @@ install: all debug test
 	cp $(TEST_TARGET) $(SHARED_DIR)/test_9p
 
 .PHONY: all debug clean install test dist
+
+# Pull in auto-generated header dependency files (-MMD -MP).  '-' suppresses
+# 'no such file' on first build before any .d exists.
+-include $(OBJ:.o=.d) $(OBJ_DEBUG:.o=.d)

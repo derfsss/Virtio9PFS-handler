@@ -8,10 +8,11 @@ static uint32 V9P_InterruptHandler(struct ExceptionContext *ctx, struct ExecBase
     struct V9PHandler *handler = (struct V9PHandler *)is_Data;
 
     (void)ctx;
+    (void)SysBase;
 
     /* Guard against is_Data being NULL/invalid during handler teardown.
      * During shutdown, the handler process may be killed before
-     * RemIntServer completes — is_Data is nulled first as a signal. */
+     * RemIntServer completes -- is_Data is nulled first as a signal. */
     if (!handler)
         return 0;
 
@@ -19,6 +20,9 @@ static uint32 V9P_InterruptHandler(struct ExceptionContext *ctx, struct ExecBase
     if (!pciDev)
         return 0;
 
+    /* Reading the ISR register de-asserts the device INT line per VirtIO
+     * spec.  V9P_Transact polls the used ring directly (no task signalling
+     * needed) so we discard the value beyond determining handled-ness. */
     uint8 isr;
     if (handler->modern_mode) {
         isr = mmio_r8(pciDev, handler->isr_cfg_base);
@@ -26,18 +30,7 @@ static uint32 V9P_InterruptHandler(struct ExceptionContext *ctx, struct ExecBase
         isr = pciDev->InByte(handler->iobase + VIRTIO_PCI_ISR);
     }
 
-    if (isr == 0)
-        return 0;
-
-    if (isr & 1) {
-        /* Signal the handler task */
-        struct ExecIFace *IExec = (struct ExecIFace *)((struct ExecBase *)SysBase)->MainInterface;
-        if (handler->handler_task) {
-            IExec->Signal(handler->handler_task, handler->irq_signal);
-        }
-    }
-
-    return 1;
+    return (isr == 0) ? 0 : 1;
 }
 
 BOOL V9P_InstallInterrupt(struct V9PHandler *handler)
@@ -75,7 +68,7 @@ void V9P_RemoveInterrupt(struct V9PHandler *handler)
     if (!handler->irq_installed)
         return;
 
-    /* Quiesce the device first — stop it from generating new interrupts.
+    /* Quiesce the device first -- stop it from generating new interrupts.
      * The ISR is still registered so any final pending interrupt is handled
      * safely before we remove it from the chain. */
     if (handler->pciDevice) {

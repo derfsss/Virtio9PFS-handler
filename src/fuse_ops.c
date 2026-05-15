@@ -21,8 +21,8 @@ extern struct V9PHandler *g_handler;
 
 /*
  * Split a path into parent directory and basename.
- * "/foo/bar/baz" → parent="/foo/bar", name="baz"
- * "/test.txt"    → parent="/", name="test.txt"
+ * "/foo/bar/baz" -> parent="/foo/bar", name="baz"
+ * "/test.txt"    -> parent="/", name="test.txt"
  */
 static void split_path(const char *path, char *parent, int parent_max,
                         char *name, int name_max)
@@ -63,7 +63,15 @@ static int32 walk_to(struct V9PHandler *h, const char *path, uint32 *out_fid)
     uint32 fid = FidPool_Alloc(h->fid_pool);
     int32 err = P9_Walk(h, h->root_fid, fid, path);
     if (err) {
-        FidPool_Free(h->fid_pool, fid);
+        /* P1-6: on transport error (-EIO from V9P_Transact timeout) the
+         * server may have allocated this fid.  Mark it orphan so we
+         * don't reuse it and trip a server-side EBADF later.  For real
+         * 9P-level errors (ENOENT, EACCES...) the fid is definitely free
+         * server-side -- return it to the pool normally. */
+        if (err == -5)
+            FidPool_MarkOrphan(h->fid_pool, fid);
+        else
+            FidPool_Free(h->fid_pool, fid);
         return err;
     }
     *out_fid = fid;
@@ -176,7 +184,7 @@ static int v9p_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             break;
 
         /* Parse packed 9P readdir entries: qid[13] offset[8] type[1] name[s]
-         * Data is in rx_buf — must be fully consumed before next Transact. */
+         * Data is in rx_buf -- must be fully consumed before next Transact. */
         uint32 pos = 0;
         while (pos < actual) {
             if (pos + 24 > actual)
@@ -505,7 +513,7 @@ static int v9p_fsync(const char *path, int datasync, struct fuse_file_info *fi)
     (void)path;
 
     /* filesysbox may invoke fsync during a general flush without an associated
-     * open-file handle. No specific fid → nothing to sync at the 9P level. */
+     * open-file handle. No specific fid -> nothing to sync at the 9P level. */
     if (!fi)
         return 0;
 
