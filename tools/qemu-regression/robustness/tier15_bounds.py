@@ -58,10 +58,51 @@ def _t15_2_malformed_string_in_response(ctx: cm.Ctx) -> None:
     """Pure marshal-layer unit test — needs a host-native build of
     p9_marshal.c (or LD_PRELOAD-style harness).  Not part of the QEMU
     suite; left as SKIP with a pointer to where it should live."""
+    import os, subprocess
+    repo_root = r"C:\msys64\home\rich_\Projects\Virtio9PFS-handler"
+    native_bin_rel = "build/test_p9_marshal_native"
+    native_bin = os.path.join(repo_root, native_bin_rel.replace("/", os.sep))
+
+    if not os.path.exists(native_bin):
+        # Try to build it on the fly via WSL+make.
+        try:
+            subprocess.run(
+                ["wsl", "-d", "Ubuntu", "--", "sh", "-c",
+                 "cd /mnt/c/msys64/home/rich_/Projects/Virtio9PFS-handler "
+                 "&& make test-native"],
+                capture_output=True, text=True, timeout=60,
+            )
+        except Exception as e:
+            ctx.score.record(
+                TIER, "15.2", "p9_get_str rejects malformed length",
+                "SKIP", f"native binary missing and build failed: {e}",
+            )
+            return
+    if not os.path.exists(native_bin):
+        ctx.score.record(
+            TIER, "15.2", "p9_get_str rejects malformed length",
+            "SKIP", f"native binary not built at {native_bin_rel}",
+        )
+        return
+
+    if os.name == "nt":
+        proc = subprocess.run(
+            ["wsl", "-d", "Ubuntu", "--", f"./{native_bin_rel}"],
+            cwd=repo_root,
+            capture_output=True, text=True, timeout=30,
+        )
+    else:
+        proc = subprocess.run(
+            [native_bin],
+            capture_output=True, text=True, timeout=30,
+        )
+    rc = proc.returncode
+    last_line = (proc.stderr.strip().splitlines()[-1]
+                 if proc.stderr.strip() else "")
     ctx.score.record(
         TIER, "15.2", "p9_get_str rejects malformed length",
-        "SKIP",
-        "host-native unit test — to be added in test/test_p9_marshal.c",
+        "PASS" if rc == 0 else "FAIL",
+        f"native rc={rc}: {last_line}",
     )
 
 

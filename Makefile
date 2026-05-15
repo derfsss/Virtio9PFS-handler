@@ -60,6 +60,18 @@ $(TEST_TARGET): test/test_9p.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(CFLAGS) test/test_9p.c -o $(TEST_TARGET) -lauto
 
+# Host-native unit test for p9_marshal bounds.  Builds with the host
+# compiler (gcc), NOT the PPC cross-compiler -- runs as a normal
+# Linux/Windows binary.  Used by tools/qemu-regression/robustness Tier 15.2.
+HOST_CC ?= gcc
+TEST_NATIVE_TARGET = $(BUILD_DIR)/test_p9_marshal_native
+
+test-native: $(TEST_NATIVE_TARGET)
+
+$(TEST_NATIVE_TARGET): test/test_p9_marshal.c test/exec/types.h src/p9_marshal.c include/p9_protocol.h
+	@mkdir -p $(BUILD_DIR)
+	$(HOST_CC) -Wall -O2 -I test -I include test/test_p9_marshal.c -o $@
+
 DIST_DIR = $(BUILD_DIR)/Virtio9PFS
 DIST_NAME = Virtio9PFS_$(shell grep HANDLER_VERSION include/version.h | head -1 | awk '{print $$3}').$(shell grep HANDLER_REVISION include/version.h | head -1 | awk '{print $$3}').$(shell grep HANDLER_BUILD include/version.h | head -1 | awk '{print $$3}')-beta
 DIST_ARCHIVE = $(BUILD_DIR)/$(DIST_NAME).lha
