@@ -59,9 +59,13 @@ BOOL V9P_InitVirtIO(struct V9PHandler *handler)
     uint32 host_features = pciDev->InLong(iobase + VIRTIO_PCI_HOST_FEATURES);
     DPRINTF("InitVirtIO: Host features: 0x%08lX\n", host_features);
 
-    /* Accept MOUNT_TAG (bit 0) + EVENT_IDX (bit 29) */
-    uint32 guest_features = host_features & (VIRTIO_9P_F_MOUNT_TAG | (1UL << VIRTIO_F_EVENT_IDX));
-    BOOL use_event_idx = (guest_features & (1UL << VIRTIO_F_EVENT_IDX)) != 0;
+    /* P3-12: only accept MOUNT_TAG.  We previously negotiated EVENT_IDX
+     * but never honoured `avail_event` for kick suppression -- and as
+     * long as EVENT_IDX is on, the device ignores VRING_AVAIL_F_NO_INTERRUPT
+     * (P3-11).  Dropping EVENT_IDX makes NO_INTERRUPT effective for our
+     * polled handler. */
+    uint32 guest_features = host_features & VIRTIO_9P_F_MOUNT_TAG;
+    BOOL use_event_idx = FALSE;
 
     DPRINTF("InitVirtIO: Guest features: 0x%08lX\n", guest_features);
     pciDev->OutLong(iobase + VIRTIO_PCI_GUEST_FEATURES, guest_features);
@@ -188,8 +192,9 @@ static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler)
     DPRINTF("InitVirtIO_Modern: Device features hi=0x%08lX lo=0x%08lX\n",
             dev_feat_hi, dev_feat_lo);
 
-    /* Accept MOUNT_TAG (bit 0) + EVENT_IDX (bit 29) + VERSION_1 (bit 0 hi) */
-    uint32 drv_feat_lo = dev_feat_lo & (VIRTIO_9P_F_MOUNT_TAG | (1UL << VIRTIO_F_EVENT_IDX));
+    /* P3-12: only accept MOUNT_TAG (lo) + VERSION_1 (hi).  EVENT_IDX
+     * dropped -- see legacy path. */
+    uint32 drv_feat_lo = dev_feat_lo & VIRTIO_9P_F_MOUNT_TAG;
     uint32 drv_feat_hi = dev_feat_hi & 1UL; /* VIRTIO_F_VERSION_1 */
 
     mmio_w32(pciDev, base + VIRTIO_PCI_COMMON_DFSELECTG, 0);
@@ -198,7 +203,7 @@ static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler)
     mmio_w32(pciDev, base + VIRTIO_PCI_COMMON_DFSELECTG, 1);
     mmio_w32(pciDev, base + VIRTIO_PCI_COMMON_DFG, drv_feat_hi);
 
-    BOOL use_event_idx = (drv_feat_lo & (1UL << VIRTIO_F_EVENT_IDX)) != 0;
+    BOOL use_event_idx = FALSE;  /* P3-12: dropped from feature mask */
 
     /* FEATURES_OK */
     mmio_w8(pciDev, base + VIRTIO_PCI_COMMON_STATUS,
