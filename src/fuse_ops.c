@@ -196,7 +196,7 @@ static int v9p_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             uint8 dtype = p9_get_u8(data, &pos);
 
             char name[256];
-            p9_get_str(data, &pos, name, sizeof(name));
+            p9_get_str(data, actual, &pos, name, sizeof(name));
 
             (void)dtype;
             if (filler(buf, name, NULL, 0) != 0)

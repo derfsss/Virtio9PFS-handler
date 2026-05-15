@@ -175,7 +175,8 @@ uint8  p9_get_u8(const uint8 *buf, uint32 *off);
 uint16 p9_get_u16(const uint8 *buf, uint32 *off);
 uint32 p9_get_u32(const uint8 *buf, uint32 *off);
 uint64 p9_get_u64(const uint8 *buf, uint32 *off);
-void   p9_get_str(const uint8 *buf, uint32 *off, char *out, uint32 max);
+void   p9_get_str(const uint8 *buf, uint32 buf_len, uint32 *off,
+                  char *out, uint32 max);
 void   p9_get_qid(const uint8 *buf, uint32 *off, struct P9Qid *qid);
 
 #endif /* P9_PROTOCOL_H */

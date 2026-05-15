@@ -102,13 +102,20 @@ uint64 p9_get_u64(const uint8 *buf, uint32 *off)
     return val;
 }
 
-void p9_get_str(const uint8 *buf, uint32 *off, char *out, uint32 max)
+void p9_get_str(const uint8 *buf, uint32 buf_len, uint32 *off,
+                char *out, uint32 max)
 {
+    /* P3-15: bound against the actual response length the caller passed
+     * in (buf_len), not the global P9_MSIZE.  This way a short Rreaddir
+     * entry stream cannot cause us to walk past the response into tail
+     * garbage in rx_buf. */
+    if (*off + 2 > buf_len) {
+        out[0] = '\0';
+        return;
+    }
     uint16 len = p9_get_u16(buf, off);
 
-    /* Guard against malformed length that would read past the buffer.
-     * P9_MSIZE is the maximum possible buffer size. */
-    if (*off >= P9_MSIZE || len > P9_MSIZE - *off) {
+    if (*off >= buf_len || len > buf_len - *off) {
         out[0] = '\0';
         return;
     }

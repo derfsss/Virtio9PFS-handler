@@ -336,7 +336,7 @@ int32 P9_Version(struct V9PHandler *h)
     h->msize = p9_get_u32(h->rx_buf, &roff);
 
     char ver[32];
-    p9_get_str(h->rx_buf, &roff, ver, sizeof(ver));
+    p9_get_str(h->rx_buf, rx_len, &roff, ver, sizeof(ver));
 
     DPRINTF("P9_Version: msize=%lu version=%s\n", h->msize, ver);
 
@@ -925,7 +925,7 @@ int32 P9_Readlink(struct V9PHandler *h, uint32 fid, char *target, uint32 maxlen)
         return err;
 
     uint32 roff = 7;
-    p9_get_str(h->rx_buf, &roff, target, maxlen);
+    p9_get_str(h->rx_buf, rx_len, &roff, target, maxlen);
 
     return 0;
 }
