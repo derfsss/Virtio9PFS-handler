@@ -145,13 +145,12 @@ def _t16_random_workload(ctx: cm.Ctx, total_seconds: int,
 
 
 def run(ctx: cm.Ctx) -> None:
-    cm.header("Tier 16 — Long-haul soak")
-    if not ctx.run_soak:
-        ctx.score.record(
-            TIER, "16.1", "random workload soak",
-            "SKIP", "--soak not passed",
-        )
-        return
-    seconds = int(os.environ.get("V9P_SOAK_SECONDS", "86400"))
+    cm.header("Tier 16 -- Long-haul soak")
+    # Always run; duration controlled by V9P_SOAK_SECONDS (default 60 s
+    # smoke).  Use --soak on iterate.py / runner to bump to the long
+    # production-validation duration (default 86400 s = 24 h).
+    seconds = int(os.environ.get(
+        "V9P_SOAK_SECONDS",
+        "86400" if ctx.run_soak else "60"))
     inject_pct = float(os.environ.get("V9P_SOAK_INJECT_PCT", "0.0005"))
     _t16_random_workload(ctx, seconds, inject_pct)
