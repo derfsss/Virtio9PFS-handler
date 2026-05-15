@@ -3,9 +3,9 @@
 
 /* Individual version components */
 #define HANDLER_VERSION  0
-#define HANDLER_REVISION 8
+#define HANDLER_REVISION 9
 #define HANDLER_BUILD    0
-#define HANDLER_DATE     "17.04.2026"
+#define HANDLER_DATE     "15.05.2026"
 #define HANDLER_NAME     "Virtio9PFS-handler"
 
 /* Helper macros for stringification */

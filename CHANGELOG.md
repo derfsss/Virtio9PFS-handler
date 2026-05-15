@@ -2,6 +2,70 @@
 
 All notable changes to Virtio9PFS-handler are documented here.
 
+## 0.9.0-beta (15 May 2026)
+
+### Robustness (the headline)
+
+A 15-item robustness plan was executed end-to-end against the v0.8.0
+codebase, addressing transport correctness, FID lifecycle, DMA
+stability, time/timeout discipline, boundary parsing, and PCI
+discovery edge cases.  Highlights:
+
+- **Tag matching in V9P_Transact** — every reply is now matched
+  against the request tag before being accepted; the previous
+  first-reply-wins logic could attribute another in-flight reply to
+  the wrong call after a timeout (P0-1).
+- **Dedicated Tflush buffer** — Tflush bodies no longer share a
+  buffer with the transaction they're cancelling; pre-fix a
+  late-arriving reply could corrupt the outgoing flush message
+  (P0-2).
+- **Held-open StartDMA** — the DMA mapping for vring buffers is now
+  established once at handler start and held for the handler's
+  lifetime, eliminating per-op StartDMA/EndDMA churn that occasionally
+  remapped to a fresh phys address mid-transaction (P1-3).
+- **V9P_Reset() transport reset** — clean teardown + re-init of the
+  virtqueues is now possible without restarting the handler; used
+  internally as a recovery hatch and exposed for test (P1-5).
+- **FID-pool orphan tracking** — FIDs that go missing because of a
+  transport timeout/reset are now marked orphaned and counted, so
+  ghost-FID accumulation is observable rather than silent (P1-6).
+- **PPC time-base wallclock timeout** — V9P_Transact now uses mftbu/
+  mftb to enforce a 10-second wallclock budget on every transaction
+  (was a busy-spin loop counter sensitive to CPU speed) (P2-7).
+- **Legacy reset poll** — the legacy VirtIO reset path now waits for
+  the device to acknowledge the reset by polling STATUS=0, matching
+  the modern path (P2-8).
+- **lwsync for cacheable RAM** — virtqueue producer/consumer barriers
+  switched from eieio to lwsync, the correct PowerPC ordering
+  primitive for cacheable memory (P2-9).
+- **iobase mapping caveat WARN** — pci_discovery now warns when an
+  iobase BAR maps suspiciously low, signalling the AmigaOne Articia
+  S firmware bug (P2-10).
+- **VRING_AVAIL_F_NO_INTERRUPT + EVENT_IDX dropped from feature
+  mask** — the host no longer sends spurious notifications during
+  active polling, and feature negotiation no longer claims
+  EVENT_IDX support we don't actually implement (P3-11, P3-12).
+- **Path-length pre-check in P9_Walk** — paths longer than the
+  internal pathbuf return ENAMETOOLONG cleanly instead of being
+  silently truncated and walked against a garbage prefix (P3-14).
+- **Bounds-checked p9_get_str** — the marshal helper now takes a
+  buffer length and refuses to read past it; covered by a host-
+  native unit test (P3-15).
+
+### Test suite
+
+- **Robustness test harness** — new pure-Python harness at
+  `tools/qemu-regression/robustness/` driving the QEMU AmigaOne
+  machine via SerialShell + QMP fault injection.  Covers the 15
+  robustness items above plus general feature coverage.
+- **17 tiers, 31 cases, 29/29 PASS + 2 SKIP** in ~12.5 minutes wall
+  time.  Coverage of v9p_* FUSE callbacks is ~96% (24/25); the one
+  remaining SKIP needs an in-guest binary to call SetFileSize on an
+  open dos.library handle.
+- **Header dependency tracking** — Makefile now uses -MMD -MP so
+  editing a header forces the right TUs to recompile, eliminating
+  the stale-object-with-mismatched-struct-layout class of bug.
+
 ## 0.8.0-beta (17 Apr 2026)
 
 ### New features
