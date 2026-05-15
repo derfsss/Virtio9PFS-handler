@@ -75,7 +75,21 @@ BOOL V9P_DiscoverDevice(struct V9PHandler *handler)
         const char *bar0_type = (handler->bar0->Flags & PCI_RANGE_IO) ? "I/O" : "MEM";
         DPRINTF("PCI_Discovery: BAR0 (%s) Physical=0x%08lX Size=%lu\n",
                 bar0_type, handler->bar0->Physical, handler->bar0->Size);
-        /* Cache legacy iobase up-front -- used if modern probe fails. */
+        /* P2-10 -- Cache legacy iobase up-front; used by the legacy
+         * VirtIO PCI accessor methods (InByte/OutByte/etc.) if the
+         * modern MMIO probe fails.
+         *
+         * BAR0 on a transitional VirtIO device (0x1009) is by spec an
+         * I/O-space BAR -- handler->iobase is then a PCI I/O address
+         * which the AmigaOS PCI accessor methods translate correctly.
+         * If a future board ever exposes this BAR in MEM space, the
+         * legacy path would silently mis-address the device, so warn
+         * loudly here. */
+        if (!(handler->bar0->Flags & PCI_RANGE_IO)) {
+            DPRINTF("PCI_Discovery: WARN BAR0 not I/O space "
+                    "(Flags=0x%lX) -- legacy mode will likely mis-address\n",
+                    (uint32)handler->bar0->Flags);
+        }
         handler->iobase = (uint32)handler->bar0->Physical;
     }
 
