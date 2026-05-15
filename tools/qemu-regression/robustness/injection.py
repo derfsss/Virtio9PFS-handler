@@ -30,20 +30,51 @@ class QMPError(RuntimeError):
     pass
 
 
+def _parse_qmp_endpoint(spec: str) -> tuple[str, str | tuple[str, int]]:
+    """Parse a QMP endpoint spec.
+
+    Returns ("unix", path) or ("tcp", (host, port)).
+    Accepted forms:
+      "/some/path"                 -> unix socket at that path
+      "unix:/some/path"            -> same
+      "tcp:HOST:PORT"              -> TCP socket
+      "127.0.0.1:14322"            -> TCP socket (auto-detect form)
+    """
+    if spec.startswith("tcp:"):
+        rest = spec[4:]
+        host, _, port = rest.rpartition(":")
+        return ("tcp", (host or "127.0.0.1", int(port)))
+    if spec.startswith("unix:"):
+        return ("unix", spec[5:])
+    if ":" in spec and spec.rsplit(":", 1)[1].isdigit():
+        host, _, port = spec.rpartition(":")
+        return ("tcp", (host, int(port)))
+    return ("unix", spec)
+
+
 class QMPClient:
-    """Minimal QMP client over a UNIX socket — enough to stop/cont the VM."""
+    """Minimal QMP client -- supports both UNIX-socket and TCP endpoints
+    (`unix:/path`, raw `/path`, `tcp:host:port`, or `host:port`)."""
 
     def __init__(self, path: str):
         self.path = path
+        self.kind, self.target = _parse_qmp_endpoint(path)
         self.sock: socket.socket | None = None
         self.buf = b""
 
     def connect(self, timeout: float = 5.0) -> None:
-        if not os.path.exists(self.path):
-            raise QMPError(f"QMP socket not found: {self.path}")
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(timeout)
-        s.connect(self.path)
+        if self.kind == "unix":
+            if not os.path.exists(self.target):
+                raise QMPError(f"QMP UNIX socket not found: {self.target}")
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.settimeout(timeout)
+            s.connect(self.target)
+        else:  # tcp
+            try:
+                s = socket.create_connection(self.target, timeout=timeout)
+            except OSError as e:
+                raise QMPError(
+                    f"QMP TCP connect to {self.target} failed: {e}") from e
         self.sock = s
         greeting = self._recv_msg()
         if "QMP" not in greeting:
@@ -127,7 +158,23 @@ def pause_resume(qmp_path: str) -> QMPClient:
 
 
 def qmp_available(qmp_path: str) -> bool:
-    return os.path.exists(qmp_path) and os.access(qmp_path, os.R_OK | os.W_OK)
+    """True if the configured QMP endpoint looks reachable.
+
+    For UNIX sockets we check file existence + R/W access.
+    For TCP we attempt a quick connect (best-effort, 1 s) -- if QEMU
+    is up with `-qmp tcp:host:port,server=on,wait=off`, this succeeds.
+    """
+    kind, target = _parse_qmp_endpoint(qmp_path)
+    if kind == "unix":
+        return os.path.exists(target) and os.access(target, os.R_OK | os.W_OK)
+    # tcp: try a short-timeout probe (and immediately close so we don't
+    # consume the QMP greeting -- a fresh connect will get its own).
+    try:
+        s = socket.create_connection(target, timeout=1.0)
+        s.close()
+        return True
+    except Exception:
+        return False
 
 
 # ----- Host CPU pressure (fallback) --------------------------------------
