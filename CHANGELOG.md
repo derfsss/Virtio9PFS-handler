@@ -2,6 +2,33 @@
 
 All notable changes to Virtio9PFS-handler are documented here.
 
+## 0.9.1-beta (15 May 2026)
+
+### Bug fixes
+
+- **`v9p_truncate` / `v9p_ftruncate` now return the new file size on
+  success** instead of 0.  filesysbox.library propagates the FUSE
+  callback's return value directly to `dos.library/SetFileSize` (and
+  `ChangeFileSize`), which by AmigaOS DOS convention must return the
+  new size on success or -1 on failure.  Returning the standard FUSE
+  zero-on-success caused every `IDOS->ChangeFileSize()` on an open
+  handle to look like a failure to userspace, even though the file
+  was correctly truncated server-side.  Surfaced by a new in-guest
+  test that exercises `SetFileSize` on an open `dos.library`
+  FileHandle.
+
+### Test suite
+
+- Unified the legacy `stress_suite.py` and the v0.9.0 robustness
+  suite into a single sequential runner under
+  `tools/qemu-regression/robustness/`.  Duplicate tiers were dropped;
+  the surviving non-duplicate stress tiers were absorbed as Tiers 0-5
+  alongside the v0.9.0 robustness tiers (6-14).  Total: 15 tiers,
+  44 cases, 43 PASS + 1 SKIP (Windows-host symlink follow) in ~12 min.
+- New Tier 3 (native `test_9p` binary) catches the open-handle
+  ftruncate regression that was invisible to the previous
+  shell-driven coverage.
+
 ## 0.9.0-beta (15 May 2026)
 
 ### Robustness (the headline)

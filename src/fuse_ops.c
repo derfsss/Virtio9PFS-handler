@@ -453,6 +453,11 @@ static int v9p_rename(const char *oldpath, const char *newpath)
     return (int)err;
 }
 
+/* FBX convention: dos.library/SetFileSize returns the new file size on
+ * success (not 0 like standard FUSE truncate).  filesysbox propagates
+ * the return value of the FUSE callback to dos.library, so we return
+ * (int)size on success.  This caps callable truncations at INT_MAX
+ * (~2 GB), which matches the int-returning FUSE callback signature. */
 static int v9p_truncate(const char *path, fbx_off_t size)
 {
     struct V9PHandler *h = g_handler;
@@ -471,7 +476,7 @@ static int v9p_truncate(const char *path, fbx_off_t size)
     P9_Clunk(h, fid);
     FidPool_Free(h->fid_pool, fid);
 
-    return (int)err;
+    return err ? (int)err : (int)(uint32)size;
 }
 
 static int v9p_ftruncate(const char *path, fbx_off_t size,
@@ -482,7 +487,10 @@ static int v9p_ftruncate(const char *path, fbx_off_t size,
 
     (void)path;
 
-    DPRINTF("ftruncate: fid=%lu size=%lld\n", (unsigned long)fid, (long long)size);
+    DPRINTF("ftruncate: fid=%lu size_lo=0x%08lx size_hi=0x%08lx\n",
+            (unsigned long)fid,
+            (unsigned long)((uint64)size & 0xffffffff),
+            (unsigned long)((uint64)size >> 32));
 
     struct P9Iattr attr;
     memset(&attr, 0, sizeof(attr));
@@ -490,7 +498,7 @@ static int v9p_ftruncate(const char *path, fbx_off_t size,
     attr.size = (uint64)size;
 
     int32 err = P9_Setattr(h, fid, &attr);
-    return (int)err;
+    return err ? (int)err : (int)(uint32)size;
 }
 
 static int v9p_statfs(const char *path, struct statvfs *st)

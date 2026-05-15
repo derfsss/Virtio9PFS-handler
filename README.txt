@@ -4,7 +4,7 @@ Virtio9PFS-handler
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-Status: Beta (v0.9.0) -- tested on QEMU AmigaOne (legacy VirtIO),
+Status: Beta (v0.9.1) -- tested on QEMU AmigaOne (legacy VirtIO),
 Pegasos2 (modern VirtIO), and SAM460ex. Use at your own risk.
 
 Important: Official QEMU for Windows (x64) does not include -virtfs
@@ -188,6 +188,27 @@ implementation plan, and tested on QEMU-emulated AmigaOne.
 
 Version History
 ===============
+
+
+0.9.1-beta (15 May 2026)
+-------------------------
+
+  Bug fixes:
+  - v9p_truncate / v9p_ftruncate now return the new file size on
+    success instead of 0.  filesysbox.library propagates the FUSE
+    callback's return value directly to dos.library/SetFileSize, which
+    by AmigaOS DOS convention must return the new size on success or
+    -1 on failure.  Returning the standard FUSE zero-on-success caused
+    every IDOS->ChangeFileSize() on an open file handle to look like a
+    failure to userspace, even though the file was correctly truncated
+    server-side.  Surfaced by a new in-guest test that exercises
+    SetFileSize on an open dos.library FileHandle.
+
+  Test suite:
+  - Unified the legacy stress_suite.py and the v0.9.0 robustness suite
+    into a single sequential runner under tools/qemu-regression/
+    robustness/.  15 tiers, 44 cases, 43 PASS + 1 SKIP (Windows-host
+    symlink follow) in ~12 min.
 
 
 0.9.0-beta (15 May 2026)

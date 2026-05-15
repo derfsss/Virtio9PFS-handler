@@ -3,7 +3,7 @@
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-**Status: Beta (v0.9.0)** — tested on QEMU AmigaOne (legacy VirtIO),
+**Status: Beta (v0.9.1)** — tested on QEMU AmigaOne (legacy VirtIO),
 Pegasos2 (modern VirtIO), and SAM460ex. Use at your own risk.
 
 **Important:** Official QEMU for Windows (x64) does not include `-virtfs`
@@ -238,11 +238,13 @@ plan, and tested on QEMU-emulated AmigaOne.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
-**Current: 0.9.0-beta** — full robustness pass: tag-matched 9P transport,
-dedicated Tflush buffer, held-open DMA mappings, V9P_Reset() recovery,
-FID orphan tracking, PPC time-base wallclock timeouts, lwsync barriers
-for cacheable RAM, plus a 31-case regression suite covering ~96% of the
-v9p_* FUSE callbacks.
+**Current: 0.9.1-beta** — fixes a `dos.library/SetFileSize` regression
+on open file handles (FBX expects ftruncate to return the new size,
+not standard FUSE 0), plus the unified 15-tier / 44-case test suite
+that surfaced it.  Inherits all v0.9.0 robustness: tag-matched 9P
+transport, dedicated Tflush buffer, held-open DMA mappings,
+V9P_Reset() recovery, FID orphan tracking, PPC time-base wallclock
+timeouts, lwsync barriers for cacheable RAM.
 
 ## License
 
