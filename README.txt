@@ -4,7 +4,7 @@ Virtio9PFS-handler
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-Status: Beta (v0.8.0) -- tested on QEMU AmigaOne (legacy VirtIO),
+Status: Beta (v0.9.0) -- tested on QEMU AmigaOne (legacy VirtIO),
 Pegasos2 (modern VirtIO), and SAM460ex. Use at your own risk.
 
 Important: Official QEMU for Windows (x64) does not include -virtfs
@@ -43,9 +43,12 @@ Features
 - DMA-safe buffers -- uses MEMF_SHARED allocations with cached physical
   addresses and PPC dcbst/dcbf cache management for zero-copy DMA
 - Polled completion -- fast used-ring polling for VirtIO completions; avoids
-  signal-based Wait() conflicts with FileSysBox event loop
-- EVENT_IDX support -- interrupt coalescing via used_event to reduce ISR
-  overhead under load
+  signal-based Wait() conflicts with FileSysBox event loop. Asks the device
+  not to interrupt on every completion (VRING_AVAIL_F_NO_INTERRUPT) to keep
+  poll-mode overhead low
+- Wall-clock transaction timeout -- every 9P transaction has a 10-second PPC
+  time-base budget; stalled transactions are cancelled with a Tflush on a
+  dedicated buffer and the FID is marked orphaned
 - No newlib dependency -- uses _start() entry point with -nostartfiles;
   inline string/memory helpers in string_utils.h
 - Automatic installer -- AmigaOS Shell script copies handler and DOSDriver
@@ -185,6 +188,38 @@ implementation plan, and tested on QEMU-emulated AmigaOne.
 
 Version History
 ===============
+
+
+0.9.0-beta (15 May 2026)
+-------------------------
+
+  Robustness:
+  - Tag-matched 9P transport -- replies are matched against the request
+    tag before being accepted, eliminating mis-attribution after a
+    timeout
+  - Dedicated Tflush buffer -- the cancellation message no longer shares
+    a buffer with the transaction it's cancelling
+  - Held-open DMA mappings -- vring DMA is established once at handler
+    start, eliminating per-op StartDMA/EndDMA churn
+  - V9P_Reset() -- clean transport teardown + re-init without restarting
+    the handler
+  - FID orphan tracking -- FIDs lost to transport timeout/reset are
+    marked orphaned and counted instead of leaking silently
+  - 10-second PPC time-base wallclock budget on every transaction
+  - Legacy VirtIO reset polls device until STATUS=0
+  - lwsync barriers in virtqueue producer/consumer (correct PowerPC
+    primitive for cacheable RAM, not eieio)
+  - PCI iobase mapping caveat warning for AmigaOne Articia S firmware
+  - Path-length pre-check in Walk returns ENAMETOOLONG cleanly on
+    over-long paths
+  - Bounds-checked p9_get_str refuses to read past the response
+
+  Test suite:
+  - New robustness harness (tools/qemu-regression/robustness/) covering
+    the items above plus general feature coverage
+  - 17 tiers, 31 cases, 29 PASS + 2 documented SKIP in ~12.5 minutes
+  - ~96% v9p_* FUSE callback coverage (24/25)
+  - Makefile gains -MMD -MP header-dependency tracking
 
 
 0.8.0-beta (17 Apr 2026)

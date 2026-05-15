@@ -6,3 +6,6 @@ CLAUDE.md
 temp/
 rust/
 .claude/
+__pycache__/
+*.pyc
+.runs/

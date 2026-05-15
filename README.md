@@ -3,7 +3,7 @@
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-**Status: Beta (v0.8.0)** — tested on QEMU AmigaOne (legacy VirtIO),
+**Status: Beta (v0.9.0)** — tested on QEMU AmigaOne (legacy VirtIO),
 Pegasos2 (modern VirtIO), and SAM460ex. Use at your own risk.
 
 **Important:** Official QEMU for Windows (x64) does not include `-virtfs`
@@ -38,9 +38,12 @@ directly from Workbench or the Shell.
 - **DMA-safe buffers** — uses `MEMF_SHARED` allocations with cached physical
   addresses and PPC `dcbst`/`dcbf` cache management for zero-copy DMA
 - **Polled completion** — fast used-ring polling for VirtIO completions;
-  avoids signal-based Wait() conflicts with FileSysBox event loop
-- **EVENT_IDX support** — interrupt coalescing via `used_event` to reduce ISR
-  overhead under load
+  avoids signal-based Wait() conflicts with FileSysBox event loop. Asks
+  the device not to interrupt on every completion (`VRING_AVAIL_F_NO_INTERRUPT`)
+  to keep poll-mode overhead low
+- **Wall-clock transaction timeout** — every 9P transaction has a 10-second
+  PPC time-base budget; stalled transactions are cancelled with a Tflush
+  on a dedicated buffer and the FID is marked orphaned
 - **No newlib dependency** — uses `_start()` entry point with `-nostartfiles`;
   inline string/memory helpers in `string_utils.h`
 - **Automatic installer** — AmigaOS Shell script copies handler and DOSDriver
@@ -60,9 +63,9 @@ Cross-compile from a Linux host (or WSL2) using the AmigaOS GCC 11 Docker
 image:
 
 ```sh
-docker run --rm -v /path/to/repo:/src -w /src/projects/VirtIO9P \
+docker run --rm -v /path/to/repo:/src -w /src \
     walkero/amigagccondocker:os4-gcc11 make clean
-docker run --rm -v /path/to/repo:/src -w /src/projects/VirtIO9P \
+docker run --rm -v /path/to/repo:/src -w /src \
     walkero/amigagccondocker:os4-gcc11 make all
 ```
 
@@ -152,14 +155,14 @@ Sashimi on real hardware). All debug messages are prefixed with `[virtio9p]`.
 To build with debug output:
 
 ```sh
-docker run --rm -v /path/to/repo:/src -w /src/projects/VirtIO9P \
+docker run --rm -v /path/to/repo:/src -w /src \
     walkero/amigagccondocker:os4-gcc11 make CFLAGS="-O2 -Wall -I./include -fno-tree-loop-distribute-patterns -DDEBUG"
 ```
 
 ## Project Structure
 
 ```
-projects/VirtIO9P/
+Virtio9PFS-handler/
 +-- include/
 |   +-- version.h              Version string macros
 |   +-- debug.h                Debug output macros (DPRINTF)
@@ -235,9 +238,11 @@ plan, and tested on QEMU-emulated AmigaOne.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
-**Current: 0.8.0-beta** — modern VirtIO PCI handshake for transitional
-devices (fixes Pegasos2 mounting) plus a comprehensive 29-check regression
-test suite validated on AmigaOne, Pegasos2, and SAM460ex.
+**Current: 0.9.0-beta** — full robustness pass: tag-matched 9P transport,
+dedicated Tflush buffer, held-open DMA mappings, V9P_Reset() recovery,
+FID orphan tracking, PPC time-base wallclock timeouts, lwsync barriers
+for cacheable RAM, plus a 31-case regression suite covering ~96% of the
+v9p_* FUSE callbacks.
 
 ## License
 

@@ -1,75 +1,76 @@
 # Virtio9PFS — Robustness Test Suite (v0.9.0)
 
-Implementation of the test plan in `.claude/plans/test_plan.md`.
-
-This is a **strictly sequential** test runner. Tiers execute in order
-0 → 16. Each test inside a tier records `PASS` / `FAIL` / `SKIP`. The
-final summary prints per-tier counts and a single overall score. There
-is **no parallelism**, **no flake-retry**, and **no early-exit on
-failure** — every tier runs, so a single fix can be evaluated against
-the full suite in one shot.
+A strictly sequential, in-QEMU regression suite for the Virtio9PFS
+handler. Tiers execute in order. Each test inside a tier records
+`PASS` / `FAIL` / `SKIP`. The final summary prints per-tier counts and
+a single overall score. There is **no parallelism**, **no flake-retry**,
+and **no early-exit on failure** — every tier runs, so a single fix can
+be evaluated against the full suite in one shot.
 
 ## Layout
 
 ```
 tools/qemu-regression/
-├── stress_suite.py            # existing — feature coverage (Tier 0..8)
-└── robustness/                # this folder — v0.9.0 robustness tiers
+├── stress_suite.py            # earlier feature-coverage suite
+└── robustness/                # this folder
     ├── __init__.py
     ├── README.md              # you are here
     ├── common.py              # shared paths, helpers, Score model
     ├── injection.py           # QMP pause/resume, host CPU/mem pressure
+    ├── iterate.py             # build-test driver (boots QEMU, uploads
+    │                          #   handler, hot-mounts, runs runner)
     ├── runner.py              # main entry point (sequential)
-    ├── tier09_resync.py       # B1 / N14
-    ├── tier10_tflush.py       # B2
-    ├── tier11_dma.py          # N1
-    ├── tier12_walk.py         # N2
-    ├── tier13_reset.py        # L4 / N3 (mostly SKIP pre-P1-5)
-    ├── tier14_timeout.py      # D2
-    ├── tier15_bounds.py       # N12 / N13
-    └── tier16_soak.py         # 24 h opt-in
+    ├── tier09_resync.py       # transport resync after timeout
+    ├── tier10_tflush.py       # Tflush isolation under timeout stress
+    ├── tier11_dma.py          # DMA stability under cache/alloc pressure
+    ├── tier12_walk.py         # Walk validation (deep + partial)
+    ├── tier13_reset.py        # V9P_Reset + FID orphan lifecycle
+    ├── tier14_timeout.py      # wall-clock transaction timeout
+    ├── tier15_bounds.py       # boundary parsing (paths, marshal)
+    ├── tier16_soak.py         # opt-in long-haul soak
+    └── tier17_features.py     # FUSE-callback feature coverage
 ```
 
 ## QEMU configuration
 
 The runner needs two host-side endpoints into the VM:
 
-1. **SerialShell TCP** (existing) — used by `stress_suite.py` too.
-   Default `localhost:4321`. Launch QEMU with e.g.
-   `-serial tcp::4321,server,wait`.
+1. **SerialShell TCP** (default `localhost:4321`). Launch QEMU with
+   `-serial tcp::4321,server,wait` (or hostfwd from a serial-over-TCP
+   forwarder).
+2. **QMP** (default `tcp:127.0.0.1:14322`, used by fault-injection tiers
+   9.2, 10.1, 13.3, 14.x). Launch QEMU with
+   `-qmp tcp:127.0.0.1:14322,server,nowait` (or `-qmp unix:/path/sock,...`).
 
-2. **QMP socket** (new for fault-injection tiers 9.2, 10.1, 14.x).
-   Default `/tmp/test_peg2/qmp.sock`. Launch QEMU with
-   `-qmp unix:/tmp/test_peg2/qmp.sock,server,nowait`.
-
-If QMP is missing the fault-injection tests are reported `SKIP`, not
+If QMP is missing, the fault-injection tests are reported `SKIP`, not
 `FAIL` — the runner still produces a usable score.
 
-The `/tmp/p9share` host directory must be bound by `-virtfs` to mount
-tag `SHARED`, exactly as for `stress_suite.py`.
+The host directory bound by `-virtfs` must be exposed under mount tag
+`SHARED`, exactly as for `stress_suite.py`. The `iterate.py` driver
+manages the QEMU lifecycle (pidfile-scoped) and uploads the freshly
+built handler binary directly to `L:` over SerialShell, then hot-mounts
+`SHARED:` without rebooting.
 
 ## Running
 
-From the repo root, with the WSL Ubuntu shell in this folder:
+From the repo root:
 
 ```sh
-# Full suite (Tier 0..15, ~10-25 min on Pegasos2 QEMU)
-python3 -m tools.qemu_regression.robustness.runner
+# Full suite via the iterate driver (boots QEMU + uploads + runs)
+python tools/qemu-regression/robustness/iterate.py
 
-# New tiers only (faster iteration during fix dev)
-python3 -m tools.qemu_regression.robustness.runner --skip-base
+# Specific tiers (faster iteration during fix dev)
+python tools/qemu-regression/robustness/iterate.py --tiers 17
 
-# Specific tiers (e.g. while iterating on P0-1 fix)
-python3 -m tools.qemu_regression.robustness.runner --tiers 9,10
+# Add the long-haul soak (Tier 16 with --soak == 24 h)
+python tools/qemu-regression/robustness/iterate.py --soak
 
-# Add the 24-h soak (Tier 16)
-python3 -m tools.qemu_regression.robustness.runner --soak
-
-# Custom ports / paths
-python3 -m tools.qemu_regression.robustness.runner \
+# Or, against an already-running QEMU, run the runner directly:
+python -m tools.qemu_regression.robustness.runner \
     --port 4321 \
-    --qmp /tmp/test_peg2/qmp.sock \
-    --serial-log /tmp/test_peg2/serial_full_2.log
+    --qmp tcp:127.0.0.1:14322 \
+    --serial-log .runs/serial.log \
+    --tiers 9,10
 ```
 
 Exit codes: `0` all pass · `1` one or more fails · `2` setup failure
@@ -83,45 +84,23 @@ Each test ends in exactly one of `PASS`, `FAIL`, or `SKIP`.
   counted in the denominator (they represent unavailable injection,
   not failed code).
 - Final line: `TOTAL: P/R passed (X%)  + S skipped  [T cases]` where
-  `R = P + F` is the "running" count and `T` includes skips.
+  `R = P + F` is the running count and `T` includes skips.
 - A standalone block lists every failed case with its test ID,
   human-readable name, and `detail` string.
 
 ## Skip vs. Fail policy
 
-The plan deliberately ships several tests as `SKIP` today because they
-need either (a) fault-injection knobs the handler does not yet have,
-or (b) debug-build log markers that arrive with the corresponding fix
-commit.
+Tests `SKIP` (not `FAIL`) when the prerequisite genuinely isn't
+available in the current environment, not when the code under test is
+broken. Current SKIPs:
 
-The pattern is:
+| Tier · test | Reason |
+|-------------|--------|
+| 17.9 — `v9p_ftruncate` (open-handle SetFileSize) | Needs an in-guest binary holding a `dos.library` FileHandle open while issuing `SetFileSize`. The shipped `test/test_9p.c` could be wired in. |
+| 17.10 — `v9p_readlink` (symlink follow) | On Windows hosts `os.symlink` requires Admin/Developer Mode and the QEMU 9P backend on NTFS doesn't expose junctions as POSIX symlinks. Runs on Linux hosts. |
 
-```python
-log = inj.scrape_serial_log(ctx.serial_log)
-if "[virtio9p] V9P_Reset" not in log:
-    ctx.score.record(TIER, "13.1", "...", "SKIP",
-                     "P1-5 marker absent")
-    return
-# active body here once the marker shows up
-```
-
-When the agent lands the corresponding fix it **must**:
-
-1. Add the expected marker to the handler (DPRINTF or similar).
-2. Author the active body of the SKIPped test in the same commit.
-3. Confirm the runner now reports `PASS` on that test.
-
-The list of pending SKIPs to flip on later, indexed by which fix
-unlocks them:
-
-| Fix    | Tier · test                                 |
-|--------|---------------------------------------------|
-| P0-2   | 10.2 — flush-buf marker                     |
-| P1-4   | 12.1 — partial-walk active body             |
-| P1-5   | 13.1, 13.2 — reset round-trip + fid invalidate |
-| P1-6   | 13.3, 13.4 — orphan + 12-h soak             |
-| P2-7   | 14.1 — wallclock timeout marker             |
-| P3-15  | 15.2 — host-native marshal unit test        |
+If a fault-injection tier (9.2, 10.1, 13.3, 14.x) has no QMP endpoint
+available, its impacted tests also SKIP cleanly.
 
 ## Adding a new test
 
@@ -141,22 +120,20 @@ def run(ctx: cm.Ctx) -> None:
     _t9_4_my_new_test(ctx)
 ```
 
-The runner picks the tier module up automatically — no registration step.
+To add a whole new tier, drop a `tierNN_topic.py` file alongside the
+existing ones and append `("NN", "tierNN_topic")` to `NEW_TIERS` in
+`runner.py`.
 
-## Iteration loop (matching the robustness plan)
-
-After each fix in `.claude/plans/robustness_plan.md`:
+## Iteration loop
 
 ```sh
-# Build (WSL → docker)
+# Build (Docker via WSL on Windows, or directly on Linux)
 docker run --rm -v $(pwd):/src -w /src \
     walkero/amigagccondocker:os4-gcc11 make clean debug
 
-# Boot Pegasos2 with the new debug build, mount SHARED:
-# Then:
-python3 -m tools.qemu_regression.robustness.runner --skip-base \
-    --tiers 9,10            # tiers relevant to the fix you just made
+# Iterate.py handles boot + upload + hot-mount + run automatically:
+python tools/qemu-regression/robustness/iterate.py --tiers 9,10
 
-# Tier-gate run (all three machines, full suite):
-python3 -m tools.qemu_regression.robustness.runner
+# Full-suite gate:
+python tools/qemu-regression/robustness/iterate.py
 ```
