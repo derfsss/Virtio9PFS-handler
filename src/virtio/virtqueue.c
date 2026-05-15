@@ -160,7 +160,12 @@ int32 VirtQueue_AddBuf(struct ExecIFace *IExec, struct virtqueue *vq,
     uint16 avail_idx = vr16(vq->modern, vq->avail->idx);
     vq->avail->ring[avail_idx % vq->num] = vr16(vq->modern, head);
 
-    __asm__ volatile("eieio" ::: "memory");
+    /* P2-9: cacheable RAM shared with a DMA-capable device -- the
+     * canonical VirtIO Linux fence here is lwsync (orders the
+     * ring[N]= store before the idx= store).  eieio is for I/O space
+     * and was a misuse of the barrier.  sync in Kick is still the
+     * right full barrier before the notify MMIO. */
+    __asm__ volatile("lwsync" ::: "memory");
 
     vq->avail->idx = vr16(vq->modern, (uint16)(avail_idx + 1));
 
@@ -242,7 +247,8 @@ void *VirtQueue_GetBuf(struct ExecIFace *IExec, struct virtqueue *vq, uint32 *le
 
     if (vq->use_event_idx) {
         vq->avail->ring[vq->num] = vr16(vq->modern, vq->last_used_idx);
-        __asm__ volatile("eieio" ::: "memory");
+        /* P2-9: lwsync, not eieio -- this is cacheable RAM. */
+        __asm__ volatile("lwsync" ::: "memory");
     }
 
     return cookie;
