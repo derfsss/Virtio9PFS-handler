@@ -12,7 +12,7 @@
 
 #include <proto/exec.h>
 
-/* Debug output prefix — appears at the start of every DPRINTF line */
+/* Debug output prefix -- appears at the start of every DPRINTF line */
 #define D_PREFIX "[virtio9p] "
 
 #ifdef DEBUG

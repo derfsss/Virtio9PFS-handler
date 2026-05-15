@@ -8,12 +8,12 @@
  *
  * All wire fields are little-endian. The marshal/unmarshal helpers in
  * p9_marshal.c use byte-by-byte extraction which inherently converts
- * between host byte order and LE on big-endian PPC — no bswap needed.
+ * between host byte order and LE on big-endian PPC -- no bswap needed.
  * Do NOT add __builtin_bswap calls; that would double-swap.
  */
 
 #define P9_VERSION_STR  "9P2000.L"
-#define P9_MSIZE        524288  /* Max message size (512KB) — fewer round-trips for large I/O */
+#define P9_MSIZE        524288  /* Max message size (512KB) -- fewer round-trips for large I/O */
 #define P9_NOFID        0xFFFFFFFFUL
 #define P9_NOTAG        0xFFFF
 #define P9_MAXWELEM     16      /* Max walk elements per Twalk */
@@ -158,7 +158,7 @@ struct P9Statfs {
 };
 
 /*
- * Marshal helpers — write LE values into buffer at offset, advance offset.
+ * Marshal helpers -- write LE values into buffer at offset, advance offset.
  */
 void p9_put_u8(uint8 *buf, uint32 *off, uint8 val);
 void p9_put_u16(uint8 *buf, uint32 *off, uint16 val);
@@ -169,7 +169,7 @@ void p9_put_header(uint8 *buf, uint32 *off, uint8 type, uint16 tag);
 void p9_finalize(uint8 *buf, uint32 total_size);
 
 /*
- * Unmarshal helpers — read LE values from buffer at offset, advance offset.
+ * Unmarshal helpers -- read LE values from buffer at offset, advance offset.
  */
 uint8  p9_get_u8(const uint8 *buf, uint32 *off);
 uint16 p9_get_u16(const uint8 *buf, uint32 *off);

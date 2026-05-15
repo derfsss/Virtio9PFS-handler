@@ -9,9 +9,9 @@ BOOL V9P_InitVirtIO(struct V9PHandler *handler);
 void V9P_CleanupVirtIO(struct V9PHandler *handler);
 void V9P_ReadMountTag(struct V9PHandler *handler);
 
-/* P1-5 — transport reset.  Tear the virtqueue down, reset the device,
+/* P1-5 -- transport reset.  Tear the virtqueue down, reset the device,
  * re-run the VirtIO handshake, then re-do P9_Version + P9_Attach.
- * Outstanding fids on the server become invalid — caller is responsible
+ * Outstanding fids on the server become invalid -- caller is responsible
  * for invalidating its FID pool (P1-6).  Returns TRUE on success.
  *
  * Does NOT recursively call V9P_Transact's reset escalation: the call

@@ -1,5 +1,5 @@
 /*
- * Virtio9PFS-handler — Main entry point
+ * Virtio9PFS-handler -- Main entry point
  *
  * FileSysBox-based handler that mounts QEMU host-shared folders via
  * VirtIO 9P (9P2000.L protocol) as AmigaOS DOS volumes.
@@ -38,7 +38,7 @@ static const char *version __attribute__((used)) =
 #include <proto/filesysbox.h>
 #include "string_utils.h"
 
-/* Global library bases and interfaces — manually managed.
+/* Global library bases and interfaces -- manually managed.
  * IExec must be set up before anything else; expansion.library
  * is opened here instead of relying on -lauto.
  */
@@ -63,7 +63,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     struct FbxFS *fs = NULL;
     int32 ret = RETURN_OK;
 
-    /* Set up IExec — must be first, everything else depends on it */
+    /* Set up IExec -- must be first, everything else depends on it */
     IExec = (struct ExecIFace *)sysbase->MainInterface;
     IExec->Obtain();
 
@@ -71,12 +71,12 @@ int32 _start(STRPTR argstring __attribute__((unused)),
 
     /* Guard against being run from a CLI shell.  Handlers receive their
      * startup message via pr_MsgPort (pr_CLI == 0).  If pr_CLI is set,
-     * we were launched from a Shell — print a diagnostic and bail. */
+     * we were launched from a Shell -- print a diagnostic and bail. */
     {
         struct Process *earlyProc = (struct Process *)IExec->FindTask(NULL);
         if (earlyProc->pr_CLI != 0) {
             IExec->DebugPrintF("[virtio9p] " HANDLER_NAME " cannot be executed "
-                               "from a shell — install to L: with a DOSDriver "
+                               "from a shell -- install to L: with a DOSDriver "
                                "in DEVS:DOSDrivers/ and reboot.\n");
             IExec->Release();
             return RETURN_FAIL;
@@ -93,7 +93,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
 
     /* 1. Get startup message from DOS.
      *
-     * With -nostartfiles, the CRT does not run — the handler startup
+     * With -nostartfiles, the CRT does not run -- the handler startup
      * message is still sitting on pr_MsgPort.  We are a handler process
      * (pr_CLI == 0), so WaitPort + GetMsg to receive it.
      */
@@ -117,7 +117,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     FileSysBoxBase = IExec->OpenLibrary("filesysbox.library", 54);
     if (!FileSysBoxBase) {
         DPRINTF("main: Failed to open filesysbox.library v54.\n");
-        /* Cannot call FbxReturnMountMsg — no FBX interface yet.
+        /* Cannot call FbxReturnMountMsg -- no FBX interface yet.
          * ReplyMsg manually so DOS doesn't hang. */
         IExec->ReplyMsg(startupMsg);
         ret = RETURN_FAIL;
@@ -142,7 +142,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     }
 
     /* 4. Get PCI interface from expansion.library.  The "main" interface
-     * is not used by this handler — we go straight to the "pci" one. */
+     * is not used by this handler -- we go straight to the "pci" one. */
     handler.IPCI = (struct PCIIFace *)IExec->GetInterface(
         ExpansionBase, "pci", 1, NULL);
 
@@ -153,7 +153,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         goto cleanup_expansion;
     }
 
-    /* 5. PCI discovery — try modern 0x1049, fallback to legacy 0x1009 */
+    /* 5. PCI discovery -- try modern 0x1049, fallback to legacy 0x1009 */
     if (!V9P_DiscoverDevice(&handler)) {
         DPRINTF("main: No VirtIO 9P device found.\n");
         IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
@@ -188,7 +188,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
      *
      * The ISR exists only to read the VirtIO ISR register and de-assert
      * the device INT line (otherwise QEMU would retrigger it continually).
-     * V9P_Transact polls the used ring — no task signalling involved —
+     * V9P_Transact polls the used ring -- no task signalling involved --
      * so there is no signal bit to allocate.
      */
     if (!V9P_InstallInterrupt(&handler)) {
@@ -216,12 +216,12 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         goto cleanup_irq;
     }
 
-    /* 9b. Resolve physical addresses for DMA — and KEEP the StartDMA
+    /* 9b. Resolve physical addresses for DMA -- and KEEP the StartDMA
      * regions live for the buffer lifetime.
      *
      * P1-3: per the SDK autodoc for StartDMA, "the mapping will not
      * change as long as EndDMA is not called".  We therefore defer the
-     * matching EndDMA to cleanup_bufs — this guarantees that the
+     * matching EndDMA to cleanup_bufs -- this guarantees that the
      * cached tx_phys/rx_phys/flush_phys remain valid even under host
      * memory pressure or page compaction.
      *
@@ -240,7 +240,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
             goto cleanup_bufs;
         }
         if (n > 1) {
-            DPRINTF("main: tx_buf physically fragmented (%lu entries) — need contiguous.\n", n);
+            DPRINTF("main: tx_buf physically fragmented (%lu entries) -- need contiguous.\n", n);
             IExec->EndDMA(handler.tx_buf, handler.msize, DMA_ReadFromRAM | DMAF_NoModify);
             IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
             ret = RETURN_FAIL;
@@ -261,7 +261,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
             goto cleanup_bufs;
         }
         if (n > 1) {
-            DPRINTF("main: rx_buf physically fragmented (%lu entries) — need contiguous.\n", n);
+            DPRINTF("main: rx_buf physically fragmented (%lu entries) -- need contiguous.\n", n);
             IExec->EndDMA(handler.rx_buf, handler.msize, DMAF_NoModify);
             IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
             ret = RETURN_FAIL;
@@ -346,13 +346,13 @@ int32 _start(STRPTR argstring __attribute__((unused)),
          *
          * FbxCleanupFS replies to DOS, signaling "handler is done".
          * During Restart System, the OS may kill this process immediately
-         * after that reply — before our cleanup code at cleanup_irq runs.
+         * after that reply -- before our cleanup code at cleanup_irq runs.
          * The struct Interrupt is on our stack, so if the process is killed,
          * the ISR chain has a dangling pointer into freed memory.
          *
          * V9P_Transact uses polling (not the ISR signal), so any FUSE
          * callbacks FBX invokes during cleanup still work without the ISR.
-         * V9P_RemoveInterrupt is idempotent — the call at cleanup_irq
+         * V9P_RemoveInterrupt is idempotent -- the call at cleanup_irq
          * becomes a no-op. */
         V9P_RemoveInterrupt(&handler);
 

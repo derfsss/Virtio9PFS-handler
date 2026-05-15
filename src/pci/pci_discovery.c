@@ -50,7 +50,7 @@ BOOL V9P_DiscoverDevice(struct V9PHandler *handler)
      * DWORD, and AmigaOS's later PCI enumerator performs a classic sizing
      * probe (write 0xffffffff, read size, write address back) but fails to
      * write 0 back to the high DWORD.  Result: BAR5 (config offset 0x24)
-     * sits at 0xffffffff, placing BAR4 at 0xffffffff84204000 — outside
+     * sits at 0xffffffff, placing BAR4 at 0xffffffff84204000 -- outside
      * Articia's decoded PCI memory window, so MMIO reads return 0xff and
      * writes are dropped.
      *
@@ -75,7 +75,7 @@ BOOL V9P_DiscoverDevice(struct V9PHandler *handler)
         const char *bar0_type = (handler->bar0->Flags & PCI_RANGE_IO) ? "I/O" : "MEM";
         DPRINTF("PCI_Discovery: BAR0 (%s) Physical=0x%08lX Size=%lu\n",
                 bar0_type, handler->bar0->Physical, handler->bar0->Size);
-        /* Cache legacy iobase up-front — used if modern probe fails. */
+        /* Cache legacy iobase up-front -- used if modern probe fails. */
         handler->iobase = (uint32)handler->bar0->Physical;
     }
 
@@ -92,8 +92,8 @@ BOOL V9P_DiscoverDevice(struct V9PHandler *handler)
      * walks the capability chain and probes MMIO to verify it actually works
      * on this platform's PCI bridge:
      *
-     *   Pegasos2 (MV64361 transparent bridge): MMIO probe passes → modern mode
-     *   AmigaOne (Articia S floating buffer):  MMIO probe fails  → legacy I/O
+     *   Pegasos2 (MV64361 transparent bridge): MMIO probe passes -> modern mode
+     *   AmigaOne (Articia S floating buffer):  MMIO probe fails  -> legacy I/O
      *
      * Non-transitional devices (0x1049) also go through the probe; if MMIO
      * works the driver uses modern mode, otherwise init will fail gracefully.

@@ -1,8 +1,8 @@
 /*
- * string_utils.h — Inline string/memory helpers (no newlib dependency)
+ * string_utils.h -- Inline string/memory helpers (no newlib dependency)
  *
  * These replace C stdlib functions so the handler can be built with
- * -nostartfiles and no newlib.  All are simple byte loops — safe for
+ * -nostartfiles and no newlib.  All are simple byte loops -- safe for
  * DMA (MEMF_SHARED) buffers where ClearMem/SetMem would be unsafe.
  */
 

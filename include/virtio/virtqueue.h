@@ -11,7 +11,7 @@
 /*
  * Indirect descriptor table entry (VIRTIO_F_INDIRECT_DESC).
  * Same layout as vring_desc but used inside the indirect table buffer;
- * the 'next' field is unused — the table is a flat array, not a chain.
+ * the 'next' field is unused -- the table is a flat array, not a chain.
  */
 struct vring_indirect_desc
 {
@@ -78,7 +78,7 @@ struct vring_sg
  * be little-endian, while the PPC guest is big-endian.  When vq->modern is
  * TRUE, every vring field read or written must go through these helpers.
  *
- * Legacy mode (vq->modern == FALSE): all fields are native big-endian — the
+ * Legacy mode (vq->modern == FALSE): all fields are native big-endian -- the
  * helpers are no-ops.
  */
 static inline uint16 vr16(BOOL modern, uint16 v)

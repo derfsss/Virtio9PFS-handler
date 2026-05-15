@@ -15,7 +15,7 @@
  * uses the legacy I/O init path.
  *
  * Transitional devices (0x1009) expose modern caps alongside their legacy
- * I/O interface — on AmigaOne the bridge swallows MMIO writes, so we must
+ * I/O interface -- on AmigaOne the bridge swallows MMIO writes, so we must
  * fall back to legacy.  On Pegasos2/SAM460ex modern MMIO works.
  */
 BOOL V9P_DetectModern(struct V9PHandler *handler)
@@ -106,14 +106,14 @@ BOOL V9P_DetectModern(struct V9PHandler *handler)
      * advertise the modern capabilities on every QEMU machine, but MMIO
      * only succeeds if the bridge forwards CPU memory cycles to device BARs.
      *
-     *   Pegasos2 (MV64361 transparent bridge): probe passes → modern mode
-     *   AmigaOne (Articia S floating buffer):  probe fails  → legacy fallback
+     *   Pegasos2 (MV64361 transparent bridge): probe passes -> modern mode
+     *   AmigaOne (Articia S floating buffer):  probe fails  -> legacy fallback
      *
      * Probe sequence:
      *   1. Enable PCI Memory Space + Bus Master (required on MV64361)
      *   2. Reset device (STATUS = 0)
      *   3. Write STATUS = ACKNOWLEDGE (0x01)
-     *   4. Read STATUS back — match means MMIO is live
+     *   4. Read STATUS back -- match means MMIO is live
      *   5. Reset again to leave clean state for InitVirtIO
      */
     if (handler->modern_mode && handler->common_cfg_base) {
@@ -133,10 +133,10 @@ BOOL V9P_DetectModern(struct V9PHandler *handler)
         mmio_w8(pciDev, base + VIRTIO_PCI_COMMON_STATUS, 0x00);
 
         if (probe == VIRTIO_STATUS_ACKNOWLEDGE) {
-            DPRINTF("pci_modern_detect: MMIO probe OK (status=0x%02X) — modern mode confirmed.\n",
+            DPRINTF("pci_modern_detect: MMIO probe OK (status=0x%02X) -- modern mode confirmed.\n",
                     (uint32)probe);
         } else {
-            DPRINTF("pci_modern_detect: MMIO probe FAILED (status=0x%02X, expected 0x01) — "
+            DPRINTF("pci_modern_detect: MMIO probe FAILED (status=0x%02X, expected 0x01) -- "
                     "falling back to legacy.\n",
                     (uint32)probe);
             handler->modern_mode = FALSE;

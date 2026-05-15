@@ -7,7 +7,7 @@
 struct V9PHandler; /* forward declaration */
 
 /*
- * V9P_Transact — Send a T-message and wait for the R-message.
+ * V9P_Transact -- Send a T-message and wait for the R-message.
  *
  * tx_buf must already contain the complete T-message (tx_size bytes).
  * On return, rx_buf contains the R-message.

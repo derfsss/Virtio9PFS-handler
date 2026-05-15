@@ -2,7 +2,7 @@
 #define VIRTIO_PCI_MODERN_H
 
 /*
- * virtio_pci_modern.h — VirtIO 1.0 Modern PCI Transport Definitions
+ * virtio_pci_modern.h -- VirtIO 1.0 Modern PCI Transport Definitions
  *
  * Modern VirtIO devices advertise their configuration regions via vendor-
  * specific PCI capabilities (type 0x09).  Each capability describes one
@@ -57,9 +57,9 @@
  *
  * The addr parameter is the physical BAR address (e.g. 0x84200000 + offset).
  * On Pegasos2 the MV64361 transparently maps PCI BAR physical addresses
- * into the CPU address space — direct pointer dereference works.
+ * into the CPU address space -- direct pointer dereference works.
  *
- * The pciDev parameter is accepted but unused — kept for call-site compat.
+ * The pciDev parameter is accepted but unused -- kept for call-site compat.
  */
 #include <interfaces/expansion.h>
 

@@ -24,7 +24,7 @@ struct FidPool;
 #define V9P_NUM_QUEUES  1
 
 /*
- * V9PHandler — Top-level handler state.
+ * V9PHandler -- Top-level handler state.
  *
  * Contains all infrastructure for VirtIO PCI transport (legacy + modern),
  * interrupt handling, 9P session state, and DMA buffers.
@@ -52,7 +52,7 @@ struct V9PHandler
     struct virtqueue        *vq;          /* Single VQ, index 0 */
     struct SignalSemaphore   vq_lock;     /* Serialize AddBuf+Kick */
 
-    /* ISR — exists solely to read the ISR register and de-assert the device
+    /* ISR -- exists solely to read the ISR register and de-assert the device
      * INT line; V9P_Transact polls the used ring, so no task signalling is
      * needed. */
     struct Interrupt         irq_handler;
@@ -94,7 +94,7 @@ struct V9PHandler
     char                     mount_tag[33]; /* From VirtIO config space, null-terminated */
 };
 
-/* Debug output — see debug.h for DPRINTF macro and prefix */
+/* Debug output -- see debug.h for DPRINTF macro and prefix */
 #include "debug.h"
 
 #endif /* VIRTIO9P_HANDLER_H */

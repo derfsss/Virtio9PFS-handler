@@ -53,7 +53,7 @@ BOOL V9P_InitVirtIO(struct V9PHandler *handler)
     DPRINTF("InitVirtIO: Guest features: 0x%08lX\n", guest_features);
     pciDev->OutLong(iobase + VIRTIO_PCI_GUEST_FEATURES, guest_features);
 
-    /* VirtQueue Setup — single queue (index 0) */
+    /* VirtQueue Setup -- single queue (index 0) */
     pciDev->OutWord(iobase + VIRTIO_PCI_QUEUE_SEL, 0);
     uint16 q_max = pciDev->InWord(iobase + VIRTIO_PCI_QUEUE_NUM);
 
@@ -135,7 +135,7 @@ static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler)
         }
     }
 
-    /* Reset — spec requires polling until status reads 0 */
+    /* Reset -- spec requires polling until status reads 0 */
     mmio_w8(pciDev, base + VIRTIO_PCI_COMMON_STATUS, 0x00);
     {
         uint32 tries = 0;
@@ -193,7 +193,7 @@ static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler)
         return FALSE;
     }
 
-    /* VirtQueue Setup — single queue (index 0) */
+    /* VirtQueue Setup -- single queue (index 0) */
     mmio_w16(pciDev, base + VIRTIO_PCI_COMMON_Q_SELECT, 0);
     uint16 q_max = mmio_r16(pciDev, base + VIRTIO_PCI_COMMON_Q_SIZE);
 
@@ -340,7 +340,7 @@ void V9P_CleanupVirtIO(struct V9PHandler *handler)
     }
 }
 
-/* P1-5 — full transport reset.  Used to recover from transport-level
+/* P1-5 -- full transport reset.  Used to recover from transport-level
  * corruption that the per-request Tflush in V9P_Transact can't fix:
  *
  *   1. Set the in-reset reentry guard so V9P_Transact's timeout path
@@ -372,7 +372,7 @@ BOOL V9P_Reset(struct V9PHandler *handler)
     }
 
     /* Re-establish the 9P session.  msize is whatever we last
-     * negotiated — P9_Version will renegotiate and overwrite it. */
+     * negotiated -- P9_Version will renegotiate and overwrite it. */
     handler->next_tag = 1;
     int32 err = P9_Version(handler);
     if (err) {
@@ -387,7 +387,7 @@ BOOL V9P_Reset(struct V9PHandler *handler)
         goto done;
     }
 
-    /* Reset FID pool — outstanding fids are gone server-side. */
+    /* Reset FID pool -- outstanding fids are gone server-side. */
     if (handler->fid_pool) {
         FidPool_Destroy(handler->fid_pool);
         handler->fid_pool = FidPool_Create();

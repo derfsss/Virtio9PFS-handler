@@ -5,7 +5,7 @@
  * 9P wire format marshal/unmarshal helpers.
  *
  * All 9P fields are little-endian on the wire. Byte-by-byte extraction
- * inherently converts between host byte order and LE — no bswap needed.
+ * inherently converts between host byte order and LE -- no bswap needed.
  */
 
 void p9_put_u8(uint8 *buf, uint32 *off, uint8 val)
@@ -53,7 +53,7 @@ void p9_put_str(uint8 *buf, uint32 *off, const char *s)
 
 void p9_put_header(uint8 *buf, uint32 *off, uint8 type, uint16 tag)
 {
-    *off = 4;  /* Skip size[4] — will be patched by p9_finalize */
+    *off = 4;  /* Skip size[4] -- will be patched by p9_finalize */
     p9_put_u8(buf, off, type);
     p9_put_u16(buf, off, tag);
 }

@@ -15,7 +15,7 @@
  *
  * dcbf (Data Cache Block Flush): flush dirty line to RAM AND invalidate.
  *   Next CPU read fetches fresh data from RAM (written by device).
- *   User-mode safe.  (dcbi is supervisor-only — privilege violation!)
+ *   User-mode safe.  (dcbi is supervisor-only -- privilege violation!)
  *
  * These replace per-transaction StartDMA/EndDMA calls, saving ~10
  * kernel round-trips.  Physical addresses are cached at startup.
@@ -66,7 +66,7 @@ static inline void cache_invalidate(void *addr, uint32 len)
 }
 
 /*
- * V9P_Transact — Send T-message in tx_buf, wait for R-message in rx_buf.
+ * V9P_Transact -- Send T-message in tx_buf, wait for R-message in rx_buf.
  *
  * Mode-agnostic: calls AddBuf/Kick/GetBuf which handle endianness internally.
  * Returns the number of bytes in the R-message, or 0 on error.
@@ -125,7 +125,7 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
     uint32 written = 0;
     void *ret_cookie = NULL;
     uint32 poll_count = 0;
-    /* Iteration-count timeout — wall-clock varies with CPU speed AND
+    /* Iteration-count timeout -- wall-clock varies with CPU speed AND
      * how chatty the debug build is (each op's serial DPRINTFs eat
      * milliseconds).  100 M iterations = ~1 s on a 600 MHz G3, much
      * shorter on faster cores.  P2-7 will replace this with a proper
@@ -135,7 +135,7 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
     while (poll_count < MAX_POLLS) {
         ret_cookie = VirtQueue_GetBuf(IExec, vq, &written);
         if (ret_cookie) {
-            /* P0-1 — validate the response actually belongs to us before
+            /* P0-1 -- validate the response actually belongs to us before
              * exiting the poll loop.  Invalidate the header cache lines
              * so tag/size are read fresh from RAM. */
             cache_invalidate(h->rx_buf, 32);
@@ -147,7 +147,7 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
                                 | ((uint32)h->rx_buf[2] << 16)
                                 | ((uint32)h->rx_buf[3] << 24);
                 if (got_tag == expected_tag && got_size == written)
-                    break;  /* legitimate response — exit poll loop */
+                    break;  /* legitimate response -- exit poll loop */
                 DPRINTF("V9P_Transact: drop stale resp tag=%u "
                         "(expect %u) size=%lu rx_len=%lu\n",
                         (uint32)got_tag, (uint32)expected_tag,
@@ -156,7 +156,7 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
                 DPRINTF("V9P_Transact: drop short resp rx_len=%lu\n",
                         written);
             }
-            /* stale or truncated — discard and keep polling */
+            /* stale or truncated -- discard and keep polling */
             ret_cookie = NULL;
             written = 0;
         }
@@ -169,10 +169,10 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
     cache_invalidate(h->rx_buf, h->msize);
 
     if (!ret_cookie) {
-        DPRINTF("V9P_Transact: timeout — attempting Tflush for tag\n");
+        DPRINTF("V9P_Transact: timeout -- attempting Tflush for tag\n");
 
         /* P0-2: build the Tflush in a *dedicated* buffer (h->flush_buf)
-         * so we never overwrite the original T-message in tx_buf — the
+         * so we never overwrite the original T-message in tx_buf -- the
          * device may still be reading it. */
         uint32 flush_off = 0;
         uint16 stalled_tag = expected_tag;  /* exactly the tag we sent */
@@ -269,7 +269,7 @@ int32 P9_Version(struct V9PHandler *h)
     if (err)
         return err;
 
-    /* Rversion: size[4] type[1] tag[2] msize[4] version[s] — minimum
+    /* Rversion: size[4] type[1] tag[2] msize[4] version[s] -- minimum
      * 7 + 4 + 2 = 13 bytes (empty version string). */
     err = p9_require_size(rx_len, 13);
     if (err)
@@ -324,7 +324,7 @@ int32 P9_Walk(struct V9PHandler *h, uint32 fid, uint32 newfid, const char *path)
     uint16 nwname = 0;
 
     /* Tokenise on '/', treating any run of slashes as a single separator.
-     * This handles leading, trailing, and embedded "//" correctly — "/foo",
+     * This handles leading, trailing, and embedded "//" correctly -- "/foo",
      * "foo/", and "foo//bar" all yield the same components as "foo" and
      * "foo/bar" respectively. */
     char *p = pathbuf;
@@ -378,12 +378,12 @@ int32 P9_Walk(struct V9PHandler *h, uint32 fid, uint32 newfid, const char *path)
     uint32 roff = 7;
     uint16 nwqid = p9_get_u16(h->rx_buf, &roff);
     if (nwqid != nwname) {
-        DPRINTF("P9_Walk: partial walk nwqid=%u nwname=%u — treating as ENOENT\n",
+        DPRINTF("P9_Walk: partial walk nwqid=%u nwname=%u -- treating as ENOENT\n",
                 (uint32)nwqid, (uint32)nwname);
         /* Best-effort clunk; if newfid is bound to the partial path the
          * server will release it.  If newfid was never bound (full
          * failure with nwqid=0 and an Rlerror is what we usually see in
-         * that case — handled above), Tclunk returns Rlerror EBADF. */
+         * that case -- handled above), Tclunk returns Rlerror EBADF. */
         if (nwqid > 0)
             (void)P9_Clunk(h, newfid);
         return -2;  /* ENOENT */
@@ -501,7 +501,7 @@ int32 P9_Read(struct V9PHandler *h, uint32 fid, uint64 offset,
     if (err)
         return err;
 
-    /* Rread: size[4] type[1] tag[2] count[4] data[count] — 11 bytes + data. */
+    /* Rread: size[4] type[1] tag[2] count[4] data[count] -- 11 bytes + data. */
     err = p9_require_size(rx_len, 11);
     if (err)
         return err;
@@ -704,7 +704,7 @@ int32 P9_Readdir(struct V9PHandler *h, uint32 fid, uint64 offset,
     if (err)
         return err;
 
-    /* Rreaddir: size[4] type[1] tag[2] count[4] data[count] — 11 bytes + data. */
+    /* Rreaddir: size[4] type[1] tag[2] count[4] data[count] -- 11 bytes + data. */
     err = p9_require_size(rx_len, 11);
     if (err)
         return err;
@@ -719,7 +719,7 @@ int32 P9_Readdir(struct V9PHandler *h, uint32 fid, uint64 offset,
     if (data_count > rx_len - roff)
         data_count = rx_len - roff;
 
-    /* Return pointer into rx_buf — caller must process before next Transact */
+    /* Return pointer into rx_buf -- caller must process before next Transact */
     if (data_out)
         *data_out = h->rx_buf + roff;
     if (actual)
@@ -855,7 +855,7 @@ int32 P9_Readlink(struct V9PHandler *h, uint32 fid, char *target, uint32 maxlen)
     if (err)
         return err;
 
-    /* Rreadlink: size[4] type[1] tag[2] target[s] — 9 bytes minimum
+    /* Rreadlink: size[4] type[1] tag[2] target[s] -- 9 bytes minimum
      * (empty target). */
     err = p9_require_size(rx_len, 9);
     if (err)

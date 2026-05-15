@@ -18,8 +18,8 @@
  *   Used Ring:         aligned to 4096
  *
  * Endianness:
- *   Legacy (vq->modern == FALSE): Native guest endian (BE on PPC) — no swap.
- *   Modern (vq->modern == TRUE):  Little-endian — swap via vr16/vr32/vr64.
+ *   Legacy (vq->modern == FALSE): Native guest endian (BE on PPC) -- no swap.
+ *   Modern (vq->modern == TRUE):  Little-endian -- swap via vr16/vr32/vr64.
  */
 
 #define VIRTIO_PCI_VRING_ALIGN 4096
