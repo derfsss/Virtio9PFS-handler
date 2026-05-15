@@ -9,6 +9,7 @@
 #include "p9_client.h"
 #include "p9_protocol.h"
 #include "fid_pool.h"
+#include "virtio/virtio_init.h"   /* V9P_Reset (debug knob) */
 #include <libraries/filesysbox.h>
 #include <proto/exec.h>
 #include <proto/filesysbox.h>
@@ -18,6 +19,17 @@
 
 /* Global handler pointer (set by main before FbxSetupFS) */
 extern struct V9PHandler *g_handler;
+
+#ifdef DEBUG
+/* Magic debug paths.  When DEBUG is defined, a getattr on one of
+ * these triggers a diagnostic action and returns a synthetic stat
+ * so the caller sees "success".  Useful for the Tier 13 robustness
+ * tests, which need a way to provoke a V9P_Reset or read FID-pool
+ * stats from outside the handler. */
+#define V9P_DEBUG_RESET_PATH    "/_v9p_debug_reset_now"
+#define V9P_DEBUG_ORPHANS_PATH  "/_v9p_debug_orphan_count"
+#define V9P_DEBUG_TAG_PATH      "/_v9p_debug_next_tag"
+#endif
 
 /*
  * Split a path into parent directory and basename.
@@ -108,6 +120,35 @@ static int v9p_getattr(const char *path, struct fbx_stat *st)
     uint32 fid;
 
     DPRINTF("getattr: '%s'\n", path);
+
+#ifdef DEBUG
+    /* Tier 13 / robustness debug knobs.  Only reachable on debug
+     * builds and only when the test issues a getattr on these magic
+     * paths.  Returns a synthetic regular-file stat so the test sees
+     * success; the size field carries diagnostic state for stats
+     * paths so the test can read it via a normal C:FileSize.        */
+    if (strcmp(path, V9P_DEBUG_RESET_PATH) == 0) {
+        DPRINTF("getattr: DEBUG-RESET-NOW knob hit; calling V9P_Reset\n");
+        BOOL ok = V9P_Reset(h);
+        DPRINTF("getattr: DEBUG-RESET result=%s\n", ok ? "OK" : "FAIL");
+        memset(st, 0, sizeof(*st));
+        st->st_mode = 0100444;  /* regular file, r--r--r-- */
+        st->st_size = ok ? 1 : 0;
+        return 0;
+    }
+    if (strcmp(path, V9P_DEBUG_ORPHANS_PATH) == 0) {
+        memset(st, 0, sizeof(*st));
+        st->st_mode = 0100444;
+        st->st_size = (fbx_off_t)FidPool_OrphanCount(h->fid_pool);
+        return 0;
+    }
+    if (strcmp(path, V9P_DEBUG_TAG_PATH) == 0) {
+        memset(st, 0, sizeof(*st));
+        st->st_mode = 0100444;
+        st->st_size = (fbx_off_t)h->next_tag;
+        return 0;
+    }
+#endif
 
     int32 err = walk_to(h, path, &fid);
     if (err) {
