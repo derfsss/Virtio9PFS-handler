@@ -1,18 +1,18 @@
 """
-Tier 14 — Wall-clock timeout.
+Tier 13 — Wall-clock timeout.
 
 Covers investigation item D2 (P2-7):
   MAX_POLLS iteration-count timeout varies with CPU speed; should be
   replaced with IExec->ReadEClock-based wall-clock.
 
-14.1  test_timeout_is_wallclock_bounded
+13.1  test_timeout_is_wallclock_bounded
         Pause QEMU for 12 s.  Handler should escalate (Tflush or, after
         P1-5, transport reset) within (timeout ± 1 s) of the pause.
-14.2  test_short_stall_does_not_timeout
+13.2  test_short_stall_does_not_timeout
         Pause QEMU for 200 ms.  Handler must NOT timeout.
 
 Both require QMP + a debug-build marker emitted by the timeout path
-once P2-7 lands.  Until then 14.1 SKIPs; 14.2 runs as a smoke test
+once P2-7 lands.  Until then 13.1 SKIPs; 13.2 runs as a smoke test
 (no timeout means the op should still succeed).
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ from . import common as cm
 from . import injection as inj
 
 
-TIER = "Tier 14"
+TIER = "Tier 13"
 
 
 def _has_wallclock_marker(serial_log: str) -> bool:
@@ -34,10 +34,10 @@ def _has_wallclock_marker(serial_log: str) -> bool:
     return any(c in log for c in candidates)
 
 
-def _t14_1_long_pause_timeouts(ctx: cm.Ctx) -> None:
+def _t13_1_long_pause_timeouts(ctx: cm.Ctx) -> None:
     if not inj.qmp_available(ctx.qmp_path):
         ctx.score.record(
-            TIER, "14.1", "long pause triggers wallclock timeout",
+            TIER, "13.1", "long pause triggers wallclock timeout",
             "SKIP", "QMP socket not available",
         )
         return
@@ -45,15 +45,15 @@ def _t14_1_long_pause_timeouts(ctx: cm.Ctx) -> None:
     # wallclock fire from a coincidental success.
     if not _has_wallclock_marker(ctx.serial_log):
         ctx.score.record(
-            TIER, "14.1", "long pause triggers wallclock timeout",
+            TIER, "13.1", "long pause triggers wallclock timeout",
             "SKIP", "P2-7 wallclock-timeout marker not present in log",
         )
         return
 
-    canary_rel = "_tier14_long.txt"
+    canary_rel = "_tier13_long.txt"
     cm.rm_host(canary_rel)
     with open(cm.host_path(canary_rel), "wb") as f:
-        f.write(b"tier14-long\n")
+        f.write(b"tier13-long\n")
 
     qmp = inj.pause_resume(ctx.qmp_path)
     qmp.stop()
@@ -70,25 +70,25 @@ def _t14_1_long_pause_timeouts(ctx: cm.Ctx) -> None:
 
     ok = fired and alive
     ctx.score.record(
-        TIER, "14.1", "long pause triggers wallclock timeout",
+        TIER, "13.1", "long pause triggers wallclock timeout",
         "PASS" if ok else "FAIL",
         f"timeout marker={'yes' if fired else 'no'}, handler "
         f"{'alive' if alive else 'unresponsive'} after resume",
     )
 
 
-def _t14_2_short_stall_does_not_timeout(ctx: cm.Ctx) -> None:
+def _t13_2_short_stall_does_not_timeout(ctx: cm.Ctx) -> None:
     if not inj.qmp_available(ctx.qmp_path):
         ctx.score.record(
-            TIER, "14.2", "short stall does not timeout",
+            TIER, "13.2", "short stall does not timeout",
             "SKIP", "QMP socket not available",
         )
         return
 
-    canary_rel = "_tier14_short.txt"
+    canary_rel = "_tier13_short.txt"
     cm.rm_host(canary_rel)
     with open(cm.host_path(canary_rel), "wb") as f:
-        f.write(b"tier14-short\n")
+        f.write(b"tier13-short\n")
 
     pre_log = inj.scrape_serial_log(ctx.serial_log)
     pre_count = pre_log.count("[virtio9p] V9P_Transact: wallclock timeout")
@@ -113,12 +113,12 @@ def _t14_2_short_stall_does_not_timeout(ctx: cm.Ctx) -> None:
     detail = (f"file {'visible' if visible else 'NOT visible'}; "
               f"timeout marker delta={post_count - pre_count}")
     ctx.score.record(
-        TIER, "14.2", "short stall does not timeout",
+        TIER, "13.2", "short stall does not timeout",
         "PASS" if ok else "FAIL", detail,
     )
 
 
 def run(ctx: cm.Ctx) -> None:
-    cm.header("Tier 14 — Wall-clock timeout")
-    _t14_1_long_pause_timeouts(ctx)
-    _t14_2_short_stall_does_not_timeout(ctx)
+    cm.header("Tier 13 — Wall-clock timeout")
+    _t13_1_long_pause_timeouts(ctx)
+    _t13_2_short_stall_does_not_timeout(ctx)

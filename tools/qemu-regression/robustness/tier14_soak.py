@@ -1,5 +1,5 @@
 """
-Tier 16 — Long-haul soak.
+Tier 14 — Long-haul soak.
 
 Default behaviour: SKIP (24 hours is too long for an interactive run).
 Enable with `--soak` on the runner CLI.  When enabled, runs a random
@@ -20,7 +20,7 @@ from . import common as cm
 from . import injection as inj
 
 
-TIER = "Tier 16"
+TIER = "Tier 14"
 
 WEIGHTS = {
     "read":   40,
@@ -40,10 +40,10 @@ def _random_op(rnd: random.Random) -> str:
     return rnd.choice(pool)
 
 
-def _t16_random_workload(ctx: cm.Ctx, total_seconds: int,
+def _t14_random_workload(ctx: cm.Ctx, total_seconds: int,
                         inject_pct: float) -> None:
     rnd = random.Random(0x501C)
-    root_rel = "_tier16_soak"
+    root_rel = "_tier14_soak"
     cm.rm_host(root_rel)
     os.makedirs(cm.host_path(root_rel), exist_ok=True)
 
@@ -121,7 +121,7 @@ def _t16_random_workload(ctx: cm.Ctx, total_seconds: int,
             # Progress dot every 5 minutes of wall-time
             if time.time() - last_progress > 300:
                 elapsed = int(time.time() - start)
-                print(f"    [tier16] {elapsed}s elapsed, {ops} ops, "
+                print(f"    [tier14] {elapsed}s elapsed, {ops} ops, "
                       f"{errors} errors", flush=True)
                 last_progress = time.time()
     finally:
@@ -139,13 +139,13 @@ def _t16_random_workload(ctx: cm.Ctx, total_seconds: int,
     detail = (f"{ops} ops, {errors} errors, handler "
               f"{'alive' if alive else 'unresponsive'}")
     ctx.score.record(
-        TIER, "16.1", f"random workload soak ({total_seconds} s)",
+        TIER, "14.1", f"random workload soak ({total_seconds} s)",
         "PASS" if ok else "FAIL", detail,
     )
 
 
 def run(ctx: cm.Ctx) -> None:
-    cm.header("Tier 16 -- Long-haul soak")
+    cm.header("Tier 14 -- Long-haul soak")
     # Always run; duration controlled by V9P_SOAK_SECONDS (default 60 s
     # smoke).  Use --soak on iterate.py / runner to bump to the long
     # production-validation duration (default 86400 s = 24 h).
@@ -153,4 +153,4 @@ def run(ctx: cm.Ctx) -> None:
         "V9P_SOAK_SECONDS",
         "86400" if ctx.run_soak else "60"))
     inject_pct = float(os.environ.get("V9P_SOAK_INJECT_PCT", "0.0005"))
-    _t16_random_workload(ctx, seconds, inject_pct)
+    _t14_random_workload(ctx, seconds, inject_pct)

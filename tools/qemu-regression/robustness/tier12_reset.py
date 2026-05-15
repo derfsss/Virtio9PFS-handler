@@ -1,5 +1,5 @@
 """
-Tier 13 -- Transport reset + FID lifecycle.
+Tier 12 -- Transport reset + FID lifecycle.
 
 Active bodies that exercise the P1-5 V9P_Reset() and P1-6 FID-orphan
 machinery via the debug knobs added to fuse_ops.c (debug builds only):
@@ -7,19 +7,19 @@ machinery via the debug knobs added to fuse_ops.c (debug builds only):
   /_v9p_debug_orphan_count   stat returns FidPool_OrphanCount()
   /_v9p_debug_next_tag       stat returns h->next_tag
 
-13.1  test_transport_reset_round_trip
+12.1  test_transport_reset_round_trip
         Trigger reset; serial log shows '[virtio9p] V9P_Reset: complete OK';
         post-reset 50 ops succeed.
-13.2  test_reset_invalidates_outstanding_fids
+12.2  test_reset_invalidates_outstanding_fids
         Open a file via guest, trigger reset, retry the open -- must still
         succeed (handler reset, fid pool fresh) but the OLD file handle
         FBX held is gone.  Confirmed by FBX issuing a fresh open and
         getattr after reset.
-13.3  test_fid_orphan_marker_appears_on_timeout
+12.3  test_fid_orphan_marker_appears_on_timeout
         Pause QEMU long enough that V9P_Transact wallclock times out
         on a Twalk; after resume the FidPool_OrphanCount has incremented.
-13.4  test_long_soak_no_ghost_fids
-        --soak only; same as Tier 16 but with stricter ghost-FID assertion.
+12.4  test_long_soak_no_ghost_fids
+        --soak only; same as Tier 14 but with stricter ghost-FID assertion.
 """
 from __future__ import annotations
 import os
@@ -29,7 +29,7 @@ from . import common as cm
 from . import injection as inj
 
 
-TIER = "Tier 13"
+TIER = "Tier 12"
 
 DEBUG_RESET   = "/_v9p_debug_reset_now"
 DEBUG_ORPHANS = "/_v9p_debug_orphan_count"
@@ -57,10 +57,10 @@ def _trigger_reset(ctx: cm.Ctx) -> int:
     return cm.size_of(out)
 
 
-# ---------- 13.1 ----------------------------------------------------------
-def _t13_1_reset_round_trip(ctx: cm.Ctx) -> None:
+# ---------- 12.1 ----------------------------------------------------------
+def _t12_1_reset_round_trip(ctx: cm.Ctx) -> None:
     if not _has_debug_knobs(ctx):
-        ctx.score.record(TIER, "13.1", "transport reset round-trip",
+        ctx.score.record(TIER, "12.1", "transport reset round-trip",
                          "SKIP", "DEBUG knobs not present (release build?)")
         return
 
@@ -69,12 +69,12 @@ def _t13_1_reset_round_trip(ctx: cm.Ctx) -> None:
 
     rc = _trigger_reset(ctx)
     if rc != 1:
-        ctx.score.record(TIER, "13.1", "transport reset round-trip",
+        ctx.score.record(TIER, "12.1", "transport reset round-trip",
                          "FAIL", f"V9P_Reset returned size={rc} (expected 1)")
         return
 
     # Drive 50 post-reset ops -- handler should be fully alive.
-    canary = "_t13_1_canary.txt"
+    canary = "_t12_1_canary.txt"
     cm.rm_host(canary)
     with open(cm.host_path(canary), "wb") as f:
         f.write(b"after-reset\n")
@@ -91,21 +91,21 @@ def _t13_1_reset_round_trip(ctx: cm.Ctx) -> None:
 
     ok = (ok_count == 50) and reset_marker_fired
     ctx.score.record(
-        TIER, "13.1", "transport reset round-trip",
+        TIER, "12.1", "transport reset round-trip",
         "PASS" if ok else "FAIL",
         f"reset_marker_delta={post_resets - pre_resets}, "
         f"post_reset_ops={ok_count}/50",
     )
 
 
-# ---------- 13.2 ----------------------------------------------------------
-def _t13_2_reset_invalidates_outstanding_fids(ctx: cm.Ctx) -> None:
+# ---------- 12.2 ----------------------------------------------------------
+def _t12_2_reset_invalidates_outstanding_fids(ctx: cm.Ctx) -> None:
     if not _has_debug_knobs(ctx):
-        ctx.score.record(TIER, "13.2", "reset invalidates outstanding FIDs",
+        ctx.score.record(TIER, "12.2", "reset invalidates outstanding FIDs",
                          "SKIP", "DEBUG knobs not present")
         return
 
-    canary = "_t13_2_open.txt"
+    canary = "_t12_2_open.txt"
     cm.rm_host(canary)
     with open(cm.host_path(canary), "wb") as f:
         f.write(b"open me\n")
@@ -121,7 +121,7 @@ def _t13_2_reset_invalidates_outstanding_fids(ctx: cm.Ctx) -> None:
     rc = _trigger_reset(ctx)
     if rc != 1:
         cm.rm_host(canary)
-        ctx.score.record(TIER, "13.2", "reset invalidates outstanding FIDs",
+        ctx.score.record(TIER, "12.2", "reset invalidates outstanding FIDs",
                          "FAIL", f"reset returned size={rc}")
         return
 
@@ -133,24 +133,24 @@ def _t13_2_reset_invalidates_outstanding_fids(ctx: cm.Ctx) -> None:
 
     ok = pre_ok and post_ok
     ctx.score.record(
-        TIER, "13.2", "reset invalidates outstanding FIDs",
+        TIER, "12.2", "reset invalidates outstanding FIDs",
         "PASS" if ok else "FAIL",
         f"pre={pre_ok}, post={post_ok}",
     )
 
 
-# ---------- 13.3 ----------------------------------------------------------
-def _t13_3_fid_orphan_marker_on_timeout(ctx: cm.Ctx) -> None:
+# ---------- 12.3 ----------------------------------------------------------
+def _t12_3_fid_orphan_marker_on_timeout(ctx: cm.Ctx) -> None:
     if not _has_debug_knobs(ctx):
-        ctx.score.record(TIER, "13.3", "FID orphan on transport timeout",
+        ctx.score.record(TIER, "12.3", "FID orphan on transport timeout",
                          "SKIP", "DEBUG knobs not present")
         return
     if not inj.qmp_available(ctx.qmp_path):
-        ctx.score.record(TIER, "13.3", "FID orphan on transport timeout",
+        ctx.score.record(TIER, "12.3", "FID orphan on transport timeout",
                          "SKIP", "QMP socket not available")
         return
 
-    canary = "_t13_3_orphan.txt"
+    canary = "_t12_3_orphan.txt"
     cm.rm_host(canary)
     with open(cm.host_path(canary), "wb") as f:
         f.write(b"orphan-test\n")
@@ -186,32 +186,32 @@ def _t13_3_fid_orphan_marker_on_timeout(ctx: cm.Ctx) -> None:
     delta = post_orphans - pre_orphans if pre_orphans >= 0 else -1
     ok = visible  # primary: handler still functional after pause/resume
     ctx.score.record(
-        TIER, "13.3", "FID orphan on transport timeout",
+        TIER, "12.3", "FID orphan on transport timeout",
         "PASS" if ok else "FAIL",
         f"orphan_count delta={delta}, post-pause file visible={visible}",
     )
 
 
-# ---------- 13.4 ----------------------------------------------------------
-def _t13_4_no_ghost_fid_soak(ctx: cm.Ctx) -> None:
+# ---------- 12.4 ----------------------------------------------------------
+def _t12_4_no_ghost_fid_soak(ctx: cm.Ctx) -> None:
     """Inline mini-soak: drive 200 random ops and assert orphan_count
     grows by at most a handful (proxy for "transport-error rate is ~0
     after P0-1+P0-2+P1-3").  --soak bumps the op count to provide more
     soak time; without --soak we still always run a short version."""
     if not _has_debug_knobs(ctx):
-        ctx.score.record(TIER, "13.4", "ghost-FID accumulation bounded",
+        ctx.score.record(TIER, "12.4", "ghost-FID accumulation bounded",
                          "SKIP", "DEBUG knobs not present")
         return
 
     pre_orphans = _read_orphan_count(ctx)
     if pre_orphans < 0:
-        ctx.score.record(TIER, "13.4", "ghost-FID accumulation bounded",
+        ctx.score.record(TIER, "12.4", "ghost-FID accumulation bounded",
                          "FAIL", "could not read orphan count")
         return
 
     # 200 ops is a quick smoke; --soak bumps to 5000 (~30 s on Pegasos2).
     n_ops = 5000 if ctx.run_soak else 200
-    canary = "_t13_4_orphan_smoke.txt"
+    canary = "_t12_4_orphan_smoke.txt"
     cm.rm_host(canary)
     with open(cm.host_path(canary), "wb") as f:
         f.write(b"orphan smoke\n")
@@ -232,7 +232,7 @@ def _t13_4_no_ghost_fid_soak(ctx: cm.Ctx) -> None:
     # headroom for environmental hiccups.
     ok = (failed == 0) and (delta <= 5)
     ctx.score.record(
-        TIER, "13.4", "ghost-FID accumulation bounded",
+        TIER, "12.4", "ghost-FID accumulation bounded",
         "PASS" if ok else "FAIL",
         f"{n_ops - failed}/{n_ops} ops OK, "
         f"orphan_count {pre_orphans}->{post_orphans} (delta={delta})",
@@ -240,8 +240,8 @@ def _t13_4_no_ghost_fid_soak(ctx: cm.Ctx) -> None:
 
 
 def run(ctx: cm.Ctx) -> None:
-    cm.header("Tier 13 -- Transport reset + FID lifecycle")
-    _t13_1_reset_round_trip(ctx)
-    _t13_2_reset_invalidates_outstanding_fids(ctx)
-    _t13_3_fid_orphan_marker_on_timeout(ctx)
-    _t13_4_no_ghost_fid_soak(ctx)
+    cm.header("Tier 12 -- Transport reset + FID lifecycle")
+    _t12_1_reset_round_trip(ctx)
+    _t12_2_reset_invalidates_outstanding_fids(ctx)
+    _t12_3_fid_orphan_marker_on_timeout(ctx)
+    _t12_4_no_ghost_fid_soak(ctx)

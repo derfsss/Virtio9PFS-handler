@@ -1,17 +1,17 @@
 """
-Tier 15 — Boundary parsing.
+Tier 7 — Boundary parsing.
 
 Covers investigation items N12 + N13 (P3-14 + P3-15).
 
-15.1  test_walk_too_long_path
+7.1  test_walk_too_long_path
         A 2048-byte path is longer than pathbuf[1024] in P9_Walk.  Pre-fix
         the path is silently truncated and we walk a garbage prefix.
         Post P3-14 it returns ENAMETOOLONG cleanly.
-15.2  test_malformed_string_in_response
+7.2  test_malformed_string_in_response
         Marshal-layer bounds.  Best done as a host-side unit test on a
         compiled-natively version of p9_marshal.c; we SKIP here and
         defer to the unit-test runner.
-15.3  test_pathological_filenames
+7.3  test_pathological_filenames
         Long names (255 bytes), names with spaces, UTF-8 multibyte,
         names like '..foo', '.foo.bar.baz', etc.  All must be visible,
         openable, and deletable.
@@ -22,10 +22,10 @@ import os
 from . import common as cm
 
 
-TIER = "Tier 15"
+TIER = "Tier 7"
 
 
-def _t15_1_walk_too_long_path(ctx: cm.Ctx) -> None:
+def _t7_1_walk_too_long_path(ctx: cm.Ctx) -> None:
     # Build a 2048-byte path consisting of nested directories.  pathbuf
     # in P9_Walk is 1024 bytes, so this exceeds the buffer by 2x.
     parts = ["d" * 60] * 30  # 30 × 61 = 1830 chars plus separators ≈ 1860
@@ -48,13 +48,13 @@ def _t15_1_walk_too_long_path(ctx: cm.Ctx) -> None:
                or "too long" in out.lower())
     handler_ok = cm.handler_alive(ctx.c)
     ctx.score.record(
-        TIER, "15.1", "walk of too-long path is refused cleanly",
+        TIER, "7.1", "walk of too-long path is refused cleanly",
         "PASS" if (refused and handler_ok) else "FAIL",
         f"refused={refused}, handler_alive={handler_ok}",
     )
 
 
-def _t15_2_malformed_string_in_response(ctx: cm.Ctx) -> None:
+def _t7_2_malformed_string_in_response(ctx: cm.Ctx) -> None:
     """Pure marshal-layer unit test — needs a host-native build of
     p9_marshal.c (or LD_PRELOAD-style harness).  Not part of the QEMU
     suite; left as SKIP with a pointer to where it should live."""
@@ -74,13 +74,13 @@ def _t15_2_malformed_string_in_response(ctx: cm.Ctx) -> None:
             )
         except Exception as e:
             ctx.score.record(
-                TIER, "15.2", "p9_get_str rejects malformed length",
+                TIER, "7.2", "p9_get_str rejects malformed length",
                 "SKIP", f"native binary missing and build failed: {e}",
             )
             return
     if not os.path.exists(native_bin):
         ctx.score.record(
-            TIER, "15.2", "p9_get_str rejects malformed length",
+            TIER, "7.2", "p9_get_str rejects malformed length",
             "SKIP", f"native binary not built at {native_bin_rel}",
         )
         return
@@ -100,14 +100,14 @@ def _t15_2_malformed_string_in_response(ctx: cm.Ctx) -> None:
     last_line = (proc.stderr.strip().splitlines()[-1]
                  if proc.stderr.strip() else "")
     ctx.score.record(
-        TIER, "15.2", "p9_get_str rejects malformed length",
+        TIER, "7.2", "p9_get_str rejects malformed length",
         "PASS" if rc == 0 else "FAIL",
         f"native rc={rc}: {last_line}",
     )
 
 
-def _t15_3_pathological_filenames(ctx: cm.Ctx) -> None:
-    base_rel = "_tier15_names"
+def _t7_3_pathological_filenames(ctx: cm.Ctx) -> None:
+    base_rel = "_tier7_names"
     cm.rm_host(base_rel)
     os.makedirs(cm.host_path(base_rel), exist_ok=True)
 
@@ -169,14 +169,14 @@ def _t15_3_pathological_filenames(ctx: cm.Ctx) -> None:
     if failures:
         detail += f"; unreachable: {failures}"
     ctx.score.record(
-        TIER, "15.3", "pathological filenames listable",
+        TIER, "7.3", "pathological filenames listable",
         "PASS" if ok else "FAIL",
         detail,
     )
 
 
 def run(ctx: cm.Ctx) -> None:
-    cm.header("Tier 15 — Boundary parsing")
-    _t15_1_walk_too_long_path(ctx)
-    _t15_2_malformed_string_in_response(ctx)
-    _t15_3_pathological_filenames(ctx)
+    cm.header("Tier 7 — Boundary parsing")
+    _t7_1_walk_too_long_path(ctx)
+    _t7_2_malformed_string_in_response(ctx)
+    _t7_3_pathological_filenames(ctx)

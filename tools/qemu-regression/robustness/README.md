@@ -1,35 +1,48 @@
-# Virtio9PFS — Robustness Test Suite (v0.9.0)
+# Virtio9PFS — Test Suite (v0.9.0)
 
 A strictly sequential, in-QEMU regression suite for the Virtio9PFS
-handler. Tiers execute in order. Each test inside a tier records
-`PASS` / `FAIL` / `SKIP`. The final summary prints per-tier counts and
-a single overall score. There is **no parallelism**, **no flake-retry**,
-and **no early-exit on failure** — every tier runs, so a single fix can
-be evaluated against the full suite in one shot.
+handler. Tiers execute in declaration order. Each test inside a tier
+records `PASS` / `FAIL` / `SKIP`. The final summary prints per-tier
+counts and a single overall score. There is **no parallelism**, **no
+flake-retry**, and **no early-exit on failure** — every tier runs, so a
+single fix can be evaluated against the full suite in one shot.
+
+This suite is the unified replacement for the earlier
+`stress_suite.py` (now removed): the surviving non-duplicate stress
+tiers were absorbed as Tiers 0–5 alongside the v0.9.0
+robustness tiers (6–14).
 
 ## Layout
 
 ```
-tools/qemu-regression/
-├── stress_suite.py            # earlier feature-coverage suite
-└── robustness/                # this folder
-    ├── __init__.py
-    ├── README.md              # you are here
-    ├── common.py              # shared paths, helpers, Score model
-    ├── injection.py           # QMP pause/resume, host CPU/mem pressure
-    ├── iterate.py             # build-test driver (boots QEMU, uploads
-    │                          #   handler, hot-mounts, runs runner)
-    ├── runner.py              # main entry point (sequential)
-    ├── tier09_resync.py       # transport resync after timeout
-    ├── tier10_tflush.py       # Tflush isolation under timeout stress
-    ├── tier11_dma.py          # DMA stability under cache/alloc pressure
-    ├── tier12_walk.py         # Walk validation (deep + partial)
-    ├── tier13_reset.py        # V9P_Reset + FID orphan lifecycle
-    ├── tier14_timeout.py      # wall-clock transaction timeout
-    ├── tier15_bounds.py       # boundary parsing (paths, marshal)
-    ├── tier16_soak.py         # opt-in long-haul soak
-    └── tier17_features.py     # FUSE-callback feature coverage
+tools/qemu-regression/robustness/
+├── __init__.py
+├── README.md              # you are here
+├── common.py              # shared paths, helpers, Score model
+├── injection.py           # QMP pause/resume, host CPU/mem pressure
+├── iterate.py             # build-test driver (boots QEMU, uploads
+│                          #   handler, hot-mounts, runs runner)
+├── runner.py              # main entry point (sequential)
+├── tier00_sanity.py       # SHARED: mounted + host canary visible
+├── tier01_transport.py    # serial-log mode-decision marker
+├── tier02_file_io.py      # SHA round-trips up to 1.5 MB
+├── tier03_test9p.py       # native on-guest test_9p binary
+├── tier04_features.py     # FUSE-callback feature coverage
+├── tier05_regressions.py  # named historical regressions (v0.7.1 fsync)
+├── tier06_walk.py         # Walk validation (deep + partial)
+├── tier07_bounds.py       # boundary parsing (paths, marshal)
+├── tier08_concurrency.py  # parallel Copy + host-write-mid-read
+├── tier09_resync.py       # transport resync after timeout
+├── tier10_tflush.py       # Tflush isolation under timeout stress
+├── tier11_dma.py          # DMA stability under cache/alloc pressure
+├── tier12_reset.py        # V9P_Reset + FID orphan lifecycle
+├── tier13_timeout.py      # wall-clock transaction timeout
+└── tier14_soak.py         # opt-in long-haul soak
 ```
+
+Tier 0 is the sanity gate: if SHARED: isn't mounted or the host canary
+isn't visible, the runner aborts with exit code 2 before doing any
+mutating work.
 
 ## QEMU configuration
 
@@ -39,17 +52,16 @@ The runner needs two host-side endpoints into the VM:
    `-serial tcp::4321,server,wait` (or hostfwd from a serial-over-TCP
    forwarder).
 2. **QMP** (default `tcp:127.0.0.1:14322`, used by fault-injection tiers
-   9.2, 10.1, 13.3, 14.x). Launch QEMU with
+   9.2, 10.1, 12.3, 13.x). Launch QEMU with
    `-qmp tcp:127.0.0.1:14322,server,nowait` (or `-qmp unix:/path/sock,...`).
 
 If QMP is missing, the fault-injection tests are reported `SKIP`, not
 `FAIL` — the runner still produces a usable score.
 
 The host directory bound by `-virtfs` must be exposed under mount tag
-`SHARED`, exactly as for `stress_suite.py`. The `iterate.py` driver
-manages the QEMU lifecycle (pidfile-scoped) and uploads the freshly
-built handler binary directly to `L:` over SerialShell, then hot-mounts
-`SHARED:` without rebooting.
+`SHARED`. The `iterate.py` driver manages the QEMU lifecycle
+(pidfile-scoped) and uploads the freshly built handler binary directly
+to `L:` over SerialShell, then hot-mounts `SHARED:` without rebooting.
 
 ## Running
 
@@ -60,9 +72,9 @@ From the repo root:
 python tools/qemu-regression/robustness/iterate.py
 
 # Specific tiers (faster iteration during fix dev)
-python tools/qemu-regression/robustness/iterate.py --tiers 17
+python tools/qemu-regression/robustness/iterate.py --tiers 3
 
-# Add the long-haul soak (Tier 16 with --soak == 24 h)
+# Add the long-haul soak (Tier 14 with --soak == 24 h)
 python tools/qemu-regression/robustness/iterate.py --soak
 
 # Or, against an already-running QEMU, run the runner directly:
@@ -96,10 +108,10 @@ broken. Current SKIPs:
 
 | Tier · test | Reason |
 |-------------|--------|
-| 17.9 — `v9p_ftruncate` (open-handle SetFileSize) | Needs an in-guest binary holding a `dos.library` FileHandle open while issuing `SetFileSize`. The shipped `test/test_9p.c` could be wired in. |
-| 17.10 — `v9p_readlink` (symlink follow) | On Windows hosts `os.symlink` requires Admin/Developer Mode and the QEMU 9P backend on NTFS doesn't expose junctions as POSIX symlinks. Runs on Linux hosts. |
+| 3.1 — native `test_9p` | Skipped if `build/test_9p` doesn't exist (run `make test` to build it). When it runs, Tier 4.9 (open-handle ftruncate) flips from SKIP to PASS-by-association. |
+| 4.10 — `v9p_readlink` (symlink follow) | On Windows hosts `os.symlink` requires Admin/Developer Mode and the QEMU 9P backend on NTFS doesn't expose junctions as POSIX symlinks. Runs on Linux hosts. |
 
-If a fault-injection tier (9.2, 10.1, 13.3, 14.x) has no QMP endpoint
+If a fault-injection tier (9.2, 10.1, 12.3, 13.x) has no QMP endpoint
 available, its impacted tests also SKIP cleanly.
 
 ## Adding a new test

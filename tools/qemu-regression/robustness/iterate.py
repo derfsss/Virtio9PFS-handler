@@ -12,7 +12,7 @@ Per-iteration cycle:
   3. Upload build/Virtio9PFS-handler.debug -> L:Virtio9PFS-handler via
      SerialShell c.upload_file (bypasses SHARED:).
   4. Update; Dismount SHARED:; Run Mount SHARED:; poll Info SHARED:.
-  5. Run robustness/runner with --skip-base.
+  5. Run robustness/runner against all tiers.
   6. QMP quit.
   7. Final pidfile-scoped kill in case anything is still alive.
 
@@ -273,7 +273,6 @@ def main(argv: list[str] | None = None) -> int:
         # Runner gets its own SerialClient
         cm.P9_SHARE_HOST = SHARE_ROOT
         runner_args = [
-            "--skip-base",
             "--port", str(SERIAL_PORT),
             "--p9-share", SHARE_ROOT,
             "--qmp", f"tcp:127.0.0.1:{QMP_PORT}",

@@ -97,7 +97,7 @@ class Ctx:
     serial_log: str
     score: Score
     run_soak: bool = False
-    """Set by runner CLI flag; tier 16 only executes when True."""
+    """Set by runner CLI flag; tier 14 only executes when True."""
 
 
 # ----- Shell + path helpers (mirror stress_suite.py) ---------------------
