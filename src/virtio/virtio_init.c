@@ -31,9 +31,22 @@ BOOL V9P_InitVirtIO(struct V9PHandler *handler)
 
     DPRINTF("InitVirtIO: Legacy init at I/O 0x%08lX\n", iobase);
 
-    /* Reset */
+    /* Reset -- spec requires polling until status reads 0 (P2-8). */
     pciDev->OutByte(iobase + VIRTIO_PCI_STATUS, 0x00);
-    pciDev->InByte(iobase + VIRTIO_PCI_ISR);
+    {
+        uint32 tries = 0;
+        uint8 rst;
+        do {
+            rst = pciDev->InByte(iobase + VIRTIO_PCI_STATUS);
+            tries++;
+        } while (rst != 0 && tries < 1000);
+        if (rst != 0) {
+            DPRINTF("InitVirtIO: Legacy reset timeout (status=0x%02X)\n",
+                    (uint32)rst);
+            return FALSE;
+        }
+    }
+    pciDev->InByte(iobase + VIRTIO_PCI_ISR);  /* clear pending IRQ */
 
     /* ACKNOWLEDGE */
     pciDev->OutByte(iobase + VIRTIO_PCI_STATUS, VIRTIO_STATUS_ACKNOWLEDGE);
