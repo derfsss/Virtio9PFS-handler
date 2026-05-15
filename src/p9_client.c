@@ -4,7 +4,45 @@
 #include "virtio/virtio_pci.h"
 #include <proto/exec.h>
 #include <exec/memory.h>
+#include <exec/exectags.h>     /* P2-7: GCIT_TimebaseFrequency */
 #include "string_utils.h"
+
+/* P2-7: wall-clock timeout for V9P_Transact's poll loop.
+ * 10 seconds is generous for QEMU under host load and short enough
+ * that a true device hang (rare) escalates promptly. */
+#define V9P_TRANSACT_TIMEOUT_SEC  10
+
+/* How often (in poll iterations) to check the wall-clock.  Reading the
+ * PPC time-base register is cheap (~few cycles, user-mode), but every
+ * iter is still wasteful; check every 4096 iters. */
+#define V9P_TRANSACT_CLOCK_CHECK_MASK  0xFFFu
+
+/* Read the 64-bit PPC time-base counter (user-mode accessible).
+ * Loop on mftbu to handle the lo-half wrap between the upper reads. */
+static inline uint64 v9p_read_tb(void)
+{
+    uint32 hi, lo, hi2;
+    do {
+        __asm__ volatile("mftbu %0" : "=r"(hi));
+        __asm__ volatile("mftb  %0" : "=r"(lo));
+        __asm__ volatile("mftbu %0" : "=r"(hi2));
+    } while (hi != hi2);
+    return ((uint64)hi << 32) | (uint64)lo;
+}
+
+/* Time-base frequency in Hz.  Cached on first use; queried via
+ * GetCPUInfo so the value matches whatever TB rate AmigaOne /
+ * Pegasos2 / SAM460ex actually run at. */
+static uint32 v9p_tb_freq_hz(void)
+{
+    static uint32 cached = 0;
+    if (cached == 0) {
+        uint32 freq = 0;
+        IExec->GetCPUInfoTags(GCIT_TimeBaseSpeed, &freq, TAG_END);
+        cached = freq ? freq : 33000000u;  /* AmigaOne-class fallback */
+    }
+    return cached;
+}
 
 /*
  * PPC data cache management for DMA buffers.
@@ -125,14 +163,14 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
     uint32 written = 0;
     void *ret_cookie = NULL;
     uint32 poll_count = 0;
-    /* Iteration-count timeout -- wall-clock varies with CPU speed AND
-     * how chatty the debug build is (each op's serial DPRINTFs eat
-     * milliseconds).  100 M iterations = ~1 s on a 600 MHz G3, much
-     * shorter on faster cores.  P2-7 will replace this with a proper
-     * ReadEClock-based wall-clock timeout. */
-    const uint32 MAX_POLLS = 100000000;
+    /* P2-7: wall-clock timeout via PPC time-base register.  Independent
+     * of CPU speed and debug-build serial chatter -- exactly 10 seconds
+     * on every machine.  We sample TB every V9P_TRANSACT_CLOCK_CHECK_MASK+1
+     * iterations; the read is user-mode, no kernel call. */
+    uint64 deadline_tb = v9p_read_tb()
+                       + (uint64)v9p_tb_freq_hz() * V9P_TRANSACT_TIMEOUT_SEC;
 
-    while (poll_count < MAX_POLLS) {
+    while (1) {
         ret_cookie = VirtQueue_GetBuf(IExec, vq, &written);
         if (ret_cookie) {
             /* P0-1 -- validate the response actually belongs to us before
@@ -162,6 +200,16 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
         }
         __asm__ volatile("lwsync" ::: "memory");
         poll_count++;
+
+        /* Wall-clock deadline check, amortised. */
+        if ((poll_count & V9P_TRANSACT_CLOCK_CHECK_MASK) == 0) {
+            if (v9p_read_tb() >= deadline_tb) {
+                DPRINTF("V9P_Transact: wallclock timeout after %lu polls "
+                        "(>%u s)\n",
+                        poll_count, (uint32)V9P_TRANSACT_TIMEOUT_SEC);
+                break;
+            }
+        }
     }
 
     /* Invalidate the full rx_buf so subsequent unmarshal reads are fresh
@@ -195,16 +243,25 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
         if (rc >= 0) {
             VirtQueue_Kick(IExec, vq, pciDev, h->iobase);
 
-            /* Drain up to 2 responses (stalled R-message + Rflush). */
+            /* Drain up to 2 responses (stalled R-message + Rflush).
+             * Use a fresh wall-clock budget per drain attempt -- cheaper
+             * to escalate to caller as -EIO than to keep blocking here.
+             * 2 s per drain (4 s total worst-case) is plenty. */
             uint32 drain;
             for (drain = 0; drain < 2; drain++) {
-                poll_count = 0;
-                while (poll_count < MAX_POLLS) {
+                uint64 drain_deadline = v9p_read_tb()
+                                      + (uint64)v9p_tb_freq_hz() * 2;
+                uint32 drain_polls = 0;
+                ret_cookie = NULL;
+                while (1) {
                     ret_cookie = VirtQueue_GetBuf(IExec, vq, &written);
                     if (ret_cookie)
                         break;
                     __asm__ volatile("lwsync" ::: "memory");
-                    poll_count++;
+                    drain_polls++;
+                    if ((drain_polls & V9P_TRANSACT_CLOCK_CHECK_MASK) == 0
+                        && v9p_read_tb() >= drain_deadline)
+                        break;
                 }
                 if (!ret_cookie)
                     break;
