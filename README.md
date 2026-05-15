@@ -133,7 +133,7 @@ The included `DOSDriver/SHARED` file contains:
 
 ```
 Handler   = L:Virtio9PFS-handler
-Stacksize = 65536
+StackSize = 65536
 Priority  = 5
 GlobVec   = -1
 Activate  = 1
