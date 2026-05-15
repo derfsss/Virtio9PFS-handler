@@ -29,36 +29,49 @@ TIER = "Tier 12"
 
 
 def _t12_1_partial_walk_enoent(ctx: cm.Ctx) -> None:
-    """SKIP unless QMP injection is wired AND a debug-build marker
-    signalling partial-walk detection is in place (post P1-4)."""
-    if not inj.qmp_available(ctx.qmp_path):
-        ctx.score.record(
-            TIER, "12.1", "partial walk returns ENOENT",
-            "SKIP", "QMP socket not available",
-        )
-        return
+    """Walk a path whose intermediate components exist but tail is
+    missing.  QEMU's 9P backend returns Rwalk with nwqid < nwname
+    (partial walk).  P1-4's nwqid==nwname check should turn that
+    into -ENOENT and emit a 'P9_Walk: partial walk' marker.
 
-    log_text = inj.scrape_serial_log(ctx.serial_log)
-    has_marker = ("[virtio9p] partial Rwalk" in log_text
-                  or "[virtio9p] walk_partial" in log_text
-                  or "P1-4" in log_text)
-    if not has_marker:
-        ctx.score.record(
-            TIER, "12.1", "partial walk returns ENOENT",
-            "SKIP", "P1-4 fix not detectable in serial log yet",
-        )
-        return
+    No QMP needed -- this is the natural failure mode of any walk to
+    a missing leaf, exercised millions of times a day by DOpus etc."""
+    root_rel = "_tier12_partial"
+    cm.rm_host(root_rel)
+    os.makedirs(cm.host_path(f"{root_rel}/a/b"), exist_ok=True)
+    # NOTE: /a/b/missing intentionally NOT created.
 
-    # When P1-4 lands and the marker appears, the agent can flip this
-    # into an active test by:
-    #   1. host: create /tmp/p9share/_t12/a/b/c/leaf.txt
-    #   2. guest: start `Type SHARED:_t12/a/b/c/leaf.txt`
-    #   3. pause QEMU mid-walk; host removes _t12/a/b
-    #   4. resume; expect ENOENT-flavoured error in CON: output
-    #   5. confirm no orphan FID in fid_pool DPRINTF
+    pre_log = inj.scrape_serial_log(ctx.serial_log)
+    pre_marker = pre_log.count("P9_Walk: partial walk")
+
+    # Walk /tier12_partial/a/b/missing -- /a + /a/b succeed, /missing fails.
+    out = cm.run(
+        ctx.c,
+        f"C:List {cm.guest_path(root_rel)}/a/b/missing",
+        timeout=15,
+    )
+
+    saw_not_found = ("not found" in out.lower()
+                     or "no such" in out.lower()
+                     or "doesn't exist" in out.lower())
+    alive = cm.handler_alive(ctx.c)
+
+    post_log = inj.scrape_serial_log(ctx.serial_log)
+    post_marker = post_log.count("P9_Walk: partial walk")
+    marker_fired = (post_marker > pre_marker)
+
+    cm.rm_host(root_rel)
+
+    # PASS if the handler returned a not-found error and stayed alive.
+    # The marker delta is informational -- a server that returns full
+    # Rlerror (instead of partial Rwalk) for missing-tail still makes
+    # the test pass (and the marker delta is then 0).
+    ok = saw_not_found and alive
     ctx.score.record(
         TIER, "12.1", "partial walk returns ENOENT",
-        "SKIP", "active body to be enabled once P1-4 marker confirmed",
+        "PASS" if ok else "FAIL",
+        f"not_found={saw_not_found}, alive={alive}, "
+        f"partial_marker_delta={post_marker - pre_marker}",
     )
 
 
