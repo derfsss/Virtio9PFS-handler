@@ -60,6 +60,7 @@ NEW_TIERS = [
     ("14", "tier14_timeout"),
     ("15", "tier15_bounds"),
     ("16", "tier16_soak"),
+    ("17", "tier17_features"),
 ]
 
 
