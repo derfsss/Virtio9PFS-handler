@@ -164,9 +164,9 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     DPRINTF("main: Device found (mode=%s)\n",
             handler.modern_mode ? "MODERN" : "LEGACY");
 
-    /* 6. Initialize VirtIO transport (legacy or modern) */
-    IExec->InitSemaphore(&handler.vq_lock);
-
+    /* 6. Initialize VirtIO transport (legacy or modern).  vq_lock was
+     * removed in P3-13 -- FBX runs a single-threaded event loop, so no
+     * AddBuf/Kick concurrency to serialize. */
     if (!V9P_InitVirtIO(&handler)) {
         DPRINTF("main: VirtIO init failed.\n");
         IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);

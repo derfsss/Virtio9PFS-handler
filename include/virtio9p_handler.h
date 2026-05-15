@@ -50,7 +50,8 @@ struct V9PHandler
 
     /* VirtIO transport */
     struct virtqueue        *vq;          /* Single VQ, index 0 */
-    struct SignalSemaphore   vq_lock;     /* Serialize AddBuf+Kick */
+    /* (P3-13) vq_lock removed -- FBX is single-threaded, no concurrency
+     * to serialize on the AddBuf+Kick path. */
 
     /* ISR -- exists solely to read the ISR register and de-assert the device
      * INT line; V9P_Transact polls the used ring, so no task signalling is
