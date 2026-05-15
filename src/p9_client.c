@@ -372,8 +372,14 @@ int32 P9_Walk(struct V9PHandler *h, uint32 fid, uint32 newfid, const char *path)
 {
     uint8 *buf = h->tx_buf;
 
-    /* Split path into components */
+    /* P3-14: reject paths longer than our component-buffer.  Without
+     * this strncpy silently truncates and we'd walk a corrupted path. */
     char pathbuf[1024];
+    if (strlen(path) >= sizeof(pathbuf)) {
+        DPRINTF("P9_Walk: path too long (%lu bytes >= %lu)\n",
+                (uint32)strlen(path), (uint32)sizeof(pathbuf));
+        return -36;  /* ENAMETOOLONG */
+    }
     strncpy(pathbuf, path, sizeof(pathbuf) - 1);
     pathbuf[sizeof(pathbuf) - 1] = '\0';
 
