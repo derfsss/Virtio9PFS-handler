@@ -19,6 +19,7 @@ static const char *version __attribute__((used)) =
 #define __NOLIBBASE__
 #define __NOGLOBALIFACE__
 #include <proto/exec.h>
+#include <proto/dos.h>
 
 #include "virtio9p_handler.h"
 #include "pci/pci_discovery.h"
@@ -54,6 +55,85 @@ struct V9PHandler *g_handler = NULL;
 
 /* Forward declaration */
 void V9P_FillOperations(struct fuse_operations *ops);
+
+/* Gracefully decline the mount when no VirtIO 9P device is present.
+ *
+ * Removing our DeviceNode from the DOS device list is the crucial step.
+ * Per the ACTION_STARTUP semantics (dos.dospackets autodoc): a handler
+ * that exits without ever establishing dn_Port -- which is the case when
+ * we bail before FbxSetupFS -- is relaunched by DOS "for every new device
+ * access thereafter".  With the device permanently absent, every reference
+ * to the volume (Workbench enumeration, Dir, etc.) would respawn this
+ * handler, have it re-scan PCI, fail, and exit again -- a relaunch storm.
+ *
+ * The startup message is the raw ACTION_STARTUP DosPacket; dp_Arg3 is the
+ * BPTR to our DeviceNode (see ACTION_STARTUP autodoc).  After the node is
+ * removed the volume simply ceases to exist: subsequent references fail
+ * instantly with "device not mounted" and no boot-time requester appears.
+ *
+ * ORDER MATTERS.  The mount caller (mounter.library at boot) holds the
+ * DosList semaphore while it waits for the ACTION_STARTUP reply, so we must
+ * reply FIRST -- a blocking RemDosEntry before the reply deadlocks the boot
+ * against that lock (see the AddDosEntry/RemDosEntry locking caveats).  The
+ * removal afterwards is therefore best-effort and strictly non-blocking:
+ * we only ever AttemptLockDosList, never the blocking LockDosList.  If the
+ * lock can't be taken within the retry window we simply skip removal and
+ * fall back to the (safe) original behaviour rather than risk a hang.
+ *
+ * dos.library is opened locally rather than held for the handler lifetime
+ * because this is the only place that needs it.
+ */
+static void V9P_DeclineMount(struct Message *startupMsg)
+{
+    struct DosPacket *pkt = startupMsg ?
+        (struct DosPacket *)startupMsg->mn_Node.ln_Name : NULL;
+    struct DeviceNode *dn = pkt ?
+        (struct DeviceNode *)BADDR(pkt->dp_Arg3) : NULL;
+
+    /* 1. Reply the startup packet so DOS's mount handshake completes and the
+     *    caller releases the DosList lock.  Running code after the reply is
+     *    safe here -- the early-exit cleanup paths below already do.
+     *
+     *    We reply DOSTRUE (success), NOT failure: a DOSFALSE reply makes the
+     *    boot-time Mount/mounter raise a blocking "Could not mount device
+     *    SHARED:" requester that halts the Workbench boot until dismissed.
+     *    Replying success suppresses that requester; the node removal in step
+     *    2 then makes the volume cleanly vanish so nothing ever tries to use
+     *    the (never-initialised) handler. */
+    if (IFileSysBox)
+        IFileSysBox->FbxReturnMountMsg(startupMsg, DOSTRUE, 0);
+
+    if (!dn)
+        return;
+
+    /* 2. Best-effort, non-blocking removal of our device node. */
+    struct Library *dosbase = IExec->OpenLibrary("dos.library", 50);
+    if (!dosbase)
+        return;
+
+    struct DOSIFace *idos = (struct DOSIFace *)IExec->GetInterface(
+        dosbase, "main", 1, NULL);
+    if (idos) {
+        int tries;
+        for (tries = 0; tries < 50; tries++) {
+            if (idos->AttemptLockDosList(LDF_DEVICES | LDF_WRITE)) {
+                /* DeviceNode and DosList share their leading layout, so the
+                 * cast is the standard idiom for RemDosEntry. */
+                idos->RemDosEntry((struct DosList *)dn);
+                idos->UnLockDosList(LDF_DEVICES | LDF_WRITE);
+                IExec->DebugPrintF("[virtio9p] No 9P device -- SHARED device "
+                                   "node removed (no relaunch).\n");
+                break;
+            }
+            idos->Delay(2);  /* ~40 ms; let the mount caller release the lock */
+        }
+        if (tries == 50)
+            IExec->DebugPrintF("[virtio9p] No 9P device -- could not lock "
+                               "DosList to remove SHARED node.\n");
+        IExec->DropInterface((struct Interface *)idos);
+    }
+    IExec->CloseLibrary(dosbase);
+}
 
 int32 _start(STRPTR argstring __attribute__((unused)),
              int32 arglen __attribute__((unused)),
@@ -153,11 +233,15 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         goto cleanup_expansion;
     }
 
-    /* 5. PCI discovery -- try modern 0x1049, fallback to legacy 0x1009 */
+    /* 5. PCI discovery -- try modern 0x1049, fallback to legacy 0x1009.
+     *
+     * No device is an expected, permanent condition (the QEMU machine was
+     * started without -device virtio-9p-pci).  Decline the mount quietly:
+     * remove the device node so DOS won't relaunch us on every reference,
+     * log a single serial line, and exit cleanly without a requester. */
     if (!V9P_DiscoverDevice(&handler)) {
-        DPRINTF("main: No VirtIO 9P device found.\n");
-        IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
-        ret = RETURN_FAIL;
+        V9P_DeclineMount(startupMsg);
+        ret = RETURN_OK;
         goto cleanup_pci;
     }
 
