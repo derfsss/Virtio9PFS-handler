@@ -4,7 +4,7 @@ Virtio9PFS-handler
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-Status: Beta (v0.9.1) -- tested on QEMU AmigaOne (legacy VirtIO),
+Status: Beta (v0.10.0) -- tested on QEMU AmigaOne (legacy VirtIO),
 Pegasos2 (modern VirtIO), and SAM460ex. Use at your own risk.
 
 Important: Official QEMU for Windows (x64) does not include -virtfs
@@ -142,6 +142,13 @@ The included SHARED DOSDriver file contains:
 - Control = "auto" -- auto-detect the first VirtIO 9P PCI device
 - The volume name matches the QEMU mount_tag parameter
 
+If the machine is booted without a VirtIO 9P device (e.g. QEMU started
+without -virtfs / -device virtio-9p-pci), the handler declines the mount
+silently: no requester appears, boot continues normally, and the volume
+simply does not exist. A single diagnostic line is written to the serial
+console. The DOSDriver can stay installed permanently regardless of
+whether the device is present.
+
 
 Debug Output
 ------------
@@ -188,6 +195,26 @@ implementation plan, and tested on QEMU-emulated AmigaOne.
 
 Version History
 ===============
+
+
+0.10.0-beta (10 June 2026)
+--------------------------
+
+  Graceful exit when no 9P device is present:
+  - No more blocking boot requester -- the handler previously failed
+    the mount with DOSFALSE, which made the boot-time mounter raise a
+    blocking "Could not mount device" requester that froze the boot
+    until dismissed.  The handler now replies success to the startup
+    packet and instead removes its own DOS device node, so the volume
+    silently vanishes and boot continues straight to Workbench.
+  - No more relaunch storm -- a handler that exits without
+    establishing dn_Port is restarted by DOS on every subsequent
+    reference to the device.  With the device node removed, references
+    fail instantly with "object not found" and the handler never
+    respawns.
+  - The node removal is strictly non-blocking and happens only after
+    the startup packet is replied (the mount caller holds the DosList
+    semaphore while waiting for that reply).
 
 
 0.9.1-beta (15 May 2026)

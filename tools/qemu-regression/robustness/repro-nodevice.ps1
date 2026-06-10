@@ -1,5 +1,7 @@
 # repro-nodevice.ps1 — boot the iterate.ps1 machine WITHOUT the virtio-9p
-# device to observe how the handler misbehaves when no 9P device exists.
+# device to exercise the handler's graceful mount-decline path (no device
+# present).  Pass -WithDevice to include the device — useful for hot-swapping
+# a new handler binary into L: between no-device runs.
 # Same qcow2 images, pidfile, and ports as iterate.ps1 (user policy).
 
 [CmdletBinding()]
@@ -84,7 +86,8 @@ function Stop-Qemu-Hard {
 
 Stop-Qemu-Hard
 
-Write-Host "[repro] launching QEMU WITHOUT virtio-9p device (serial -> $SerialLog)"
+$devDesc = if ($WithDevice) { "WITH" } else { "WITHOUT" }
+Write-Host "[repro] launching QEMU $devDesc virtio-9p device (serial -> $SerialLog)"
 $proc = Start-Process -FilePath $QemuExe -ArgumentList $cmdline -PassThru -WindowStyle Minimized
 Write-Host "[repro] qemu pid=$($proc.Id)"
 

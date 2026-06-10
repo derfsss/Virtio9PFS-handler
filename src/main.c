@@ -56,57 +56,63 @@ struct V9PHandler *g_handler = NULL;
 /* Forward declaration */
 void V9P_FillOperations(struct fuse_operations *ops);
 
-/* Gracefully decline the mount when no VirtIO 9P device is present.
+/* Gracefully decline the mount on a permanent failure (no VirtIO 9P device,
+ * missing system library/interface).  `reason` goes into the serial log;
+ * messages here use DebugPrintF, not DPRINTF, deliberately -- they are the
+ * one trace of the decline and must appear in release builds too.
  *
- * Removing our DeviceNode from the DOS device list is the crucial step.
- * Per the ACTION_STARTUP semantics (dos.dospackets autodoc): a handler
- * that exits without ever establishing dn_Port -- which is the case when
- * we bail before FbxSetupFS -- is relaunched by DOS "for every new device
- * access thereafter".  With the device permanently absent, every reference
- * to the volume (Workbench enumeration, Dir, etc.) would respawn this
- * handler, have it re-scan PCI, fail, and exit again -- a relaunch storm.
+ * Two failure modes have to be avoided here:
  *
- * The startup message is the raw ACTION_STARTUP DosPacket; dp_Arg3 is the
- * BPTR to our DeviceNode (see ACTION_STARTUP autodoc).  After the node is
- * removed the volume simply ceases to exist: subsequent references fail
- * instantly with "device not mounted" and no boot-time requester appears.
+ * Boot requester: replying the ACTION_STARTUP packet with DOSFALSE makes
+ * the boot-time Mount/mounter raise a blocking "Could not mount device"
+ * requester that halts the Workbench boot until dismissed.  We therefore
+ * reply DOSTRUE; the node removal below then makes the volume vanish so
+ * nothing ever tries to use the (never-initialised) handler.
  *
- * ORDER MATTERS.  The mount caller (mounter.library at boot) holds the
- * DosList semaphore while it waits for the ACTION_STARTUP reply, so we must
- * reply FIRST -- a blocking RemDosEntry before the reply deadlocks the boot
- * against that lock (see the AddDosEntry/RemDosEntry locking caveats).  The
- * removal afterwards is therefore best-effort and strictly non-blocking:
- * we only ever AttemptLockDosList, never the blocking LockDosList.  If the
- * lock can't be taken within the retry window we simply skip removal and
- * fall back to the (safe) original behaviour rather than risk a hang.
+ * Relaunch storm: a handler that exits without establishing dn_Port -- our
+ * case, since we bail before FbxSetupFS -- is relaunched by DOS "for every
+ * new device access thereafter" (ACTION_STARTUP autodoc).  With the failure
+ * permanent, every reference to the volume would respawn this handler,
+ * have it re-scan PCI, fail, and exit again.  Removing our DeviceNode
+ * (dp_Arg3 of the startup packet) makes subsequent references fail
+ * instantly instead.
+ *
+ * ORDER MATTERS.  The mount caller holds the DosList semaphore while it
+ * waits for the ACTION_STARTUP reply, so the reply must come FIRST -- a
+ * blocking RemDosEntry before it deadlocks the boot against that lock
+ * (the AddDosEntry/RemDosEntry locking caveat).  The removal afterwards is
+ * best-effort and strictly non-blocking: AttemptLockDosList only, never
+ * LockDosList.  If the lock can't be taken within the retry window we skip
+ * removal; the node then stays mountable with dn_Port unset, so the next
+ * access relaunches the handler, which retries this removal -- the fallback
+ * converges instead of hanging.
+ *
+ * The removed node is intentionally NOT freed: dn_SegList is the very
+ * seglist this code is executing from, and the mount caller may still hold
+ * references.  A one-time boot allocation is the safe price.
  *
  * dos.library is opened locally rather than held for the handler lifetime
  * because this is the only place that needs it.
  */
-static void V9P_DeclineMount(struct Message *startupMsg)
+#define DECLINE_LOCK_RETRIES  50
+#define DECLINE_RETRY_TICKS   2   /* 2 ticks = ~40 ms per attempt */
+
+static void V9P_DeclineMount(struct Message *startupMsg, const char *reason)
 {
     struct DosPacket *pkt = startupMsg ?
         (struct DosPacket *)startupMsg->mn_Node.ln_Name : NULL;
     struct DeviceNode *dn = pkt ?
         (struct DeviceNode *)BADDR(pkt->dp_Arg3) : NULL;
 
-    /* 1. Reply the startup packet so DOS's mount handshake completes and the
-     *    caller releases the DosList lock.  Running code after the reply is
-     *    safe here -- the early-exit cleanup paths below already do.
-     *
-     *    We reply DOSTRUE (success), NOT failure: a DOSFALSE reply makes the
-     *    boot-time Mount/mounter raise a blocking "Could not mount device
-     *    SHARED:" requester that halts the Workbench boot until dismissed.
-     *    Replying success suppresses that requester; the node removal in step
-     *    2 then makes the volume cleanly vanish so nothing ever tries to use
-     *    the (never-initialised) handler. */
+    /* Reply first; releases the caller's DosList lock (see above).  Running
+     * code after the reply is safe -- the early-exit cleanup paths in
+     * _start() already do. */
     if (IFileSysBox)
         IFileSysBox->FbxReturnMountMsg(startupMsg, DOSTRUE, 0);
 
     if (!dn)
         return;
 
-    /* 2. Best-effort, non-blocking removal of our device node. */
     struct Library *dosbase = IExec->OpenLibrary("dos.library", 50);
     if (!dosbase)
         return;
@@ -114,22 +120,23 @@ static void V9P_DeclineMount(struct Message *startupMsg)
     struct DOSIFace *idos = (struct DOSIFace *)IExec->GetInterface(
         dosbase, "main", 1, NULL);
     if (idos) {
+        BOOL removed = FALSE;
         int tries;
-        for (tries = 0; tries < 50; tries++) {
+        for (tries = 0; tries < DECLINE_LOCK_RETRIES && !removed; tries++) {
             if (idos->AttemptLockDosList(LDF_DEVICES | LDF_WRITE)) {
                 /* DeviceNode and DosList share their leading layout, so the
                  * cast is the standard idiom for RemDosEntry. */
                 idos->RemDosEntry((struct DosList *)dn);
                 idos->UnLockDosList(LDF_DEVICES | LDF_WRITE);
-                IExec->DebugPrintF("[virtio9p] No 9P device -- SHARED device "
-                                   "node removed (no relaunch).\n");
-                break;
+                removed = TRUE;
+            } else {
+                idos->Delay(DECLINE_RETRY_TICKS);
             }
-            idos->Delay(2);  /* ~40 ms; let the mount caller release the lock */
         }
-        if (tries == 50)
-            IExec->DebugPrintF("[virtio9p] No 9P device -- could not lock "
-                               "DosList to remove SHARED node.\n");
+        IExec->DebugPrintF(removed ?
+            "[virtio9p] %s -- mount declined, device node removed.\n" :
+            "[virtio9p] %s -- could not lock DosList to remove device node.\n",
+            reason);
         IExec->DropInterface((struct Interface *)idos);
     }
     IExec->CloseLibrary(dosbase);
@@ -193,12 +200,21 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         goto cleanup_exec;
     }
 
-    /* 2. Open filesysbox.library */
+    /* 2. Open filesysbox.library.
+     *
+     * Without FBX we must return the startup packet by hand.  The packet
+     * result fields are NOT initialised by DOS -- a bare ReplyMsg would
+     * leave the mount caller reading garbage dp_Res1 (possibly mistaking
+     * the failed mount for success), so set them explicitly first. */
     FileSysBoxBase = IExec->OpenLibrary("filesysbox.library", 54);
     if (!FileSysBoxBase) {
         DPRINTF("main: Failed to open filesysbox.library v54.\n");
-        /* Cannot call FbxReturnMountMsg -- no FBX interface yet.
-         * ReplyMsg manually so DOS doesn't hang. */
+        struct DosPacket *pkt =
+            (struct DosPacket *)startupMsg->mn_Node.ln_Name;
+        if (pkt) {
+            pkt->dp_Res1 = DOSFALSE;
+            pkt->dp_Res2 = ERROR_INVALID_RESIDENT_LIBRARY;
+        }
         IExec->ReplyMsg(startupMsg);
         ret = RETURN_FAIL;
         goto cleanup_exec;
@@ -207,17 +223,24 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         FileSysBoxBase, "main", 1, NULL);
     if (!IFileSysBox) {
         DPRINTF("main: Failed to get FileSysBox interface.\n");
+        struct DosPacket *pkt =
+            (struct DosPacket *)startupMsg->mn_Node.ln_Name;
+        if (pkt) {
+            pkt->dp_Res1 = DOSFALSE;
+            pkt->dp_Res2 = ERROR_INVALID_RESIDENT_LIBRARY;
+        }
         IExec->ReplyMsg(startupMsg);
         ret = RETURN_FAIL;
         goto cleanup_fbx;
     }
 
-    /* 3. Open expansion.library (for PCI interface) */
+    /* 3. Open expansion.library (for PCI interface).  Like a missing 9P
+     * device, a missing system library/interface is permanent for this
+     * boot -- decline rather than fail, or every later reference to the
+     * volume relaunches the handler just to fail again. */
     ExpansionBase = IExec->OpenLibrary("expansion.library", 50);
     if (!ExpansionBase) {
-        DPRINTF("main: Failed to open expansion.library.\n");
-        IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
-        ret = RETURN_FAIL;
+        V9P_DeclineMount(startupMsg, "No expansion.library");
         goto cleanup_fbx;
     }
 
@@ -227,9 +250,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         ExpansionBase, "pci", 1, NULL);
 
     if (!handler.IPCI) {
-        DPRINTF("main: Failed to get PCI interface.\n");
-        IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
-        ret = RETURN_FAIL;
+        V9P_DeclineMount(startupMsg, "No PCI interface");
         goto cleanup_expansion;
     }
 
@@ -240,8 +261,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
      * remove the device node so DOS won't relaunch us on every reference,
      * log a single serial line, and exit cleanly without a requester. */
     if (!V9P_DiscoverDevice(&handler)) {
-        V9P_DeclineMount(startupMsg);
-        ret = RETURN_OK;
+        V9P_DeclineMount(startupMsg, "No 9P device");
         goto cleanup_pci;
     }
 

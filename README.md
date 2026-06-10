@@ -3,7 +3,7 @@
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-**Status: Beta (v0.9.1)** — tested on QEMU AmigaOne (legacy VirtIO),
+**Status: Beta (v0.10.0)** — tested on QEMU AmigaOne (legacy VirtIO),
 Pegasos2 (modern VirtIO), and SAM460ex. Use at your own risk.
 
 **Important:** Official QEMU for Windows (x64) does not include `-virtfs`
@@ -147,6 +147,13 @@ Control   = "auto"
 - `Control = "auto"` — auto-detect the first VirtIO 9P PCI device
 - The volume name matches the QEMU `mount_tag` parameter
 
+If the machine is booted **without** a VirtIO 9P device (e.g. QEMU started
+without `-virtfs`/`-device virtio-9p-pci`), the handler declines the mount
+silently: no requester appears, boot continues normally, and the volume
+simply does not exist. A single diagnostic line is written to the serial
+console. The DOSDriver can stay installed permanently regardless of whether
+the device is present.
+
 ## Debug Output
 
 Compile with `-DDEBUG` to enable serial debug output (QEMU serial console or
@@ -238,13 +245,14 @@ plan, and tested on QEMU-emulated AmigaOne.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
-**Current: 0.9.1-beta** — fixes a `dos.library/SetFileSize` regression
-on open file handles (FBX expects ftruncate to return the new size,
-not standard FUSE 0), plus the unified 15-tier / 44-case test suite
-that surfaced it.  Inherits all v0.9.0 robustness: tag-matched 9P
-transport, dedicated Tflush buffer, held-open DMA mappings,
-V9P_Reset() recovery, FID orphan tracking, PPC time-base wallclock
-timeouts, lwsync barriers for cacheable RAM.
+**Current: 0.10.0-beta** — graceful exit when no VirtIO 9P device is
+present: the handler declines the mount without raising a blocking
+boot requester and removes its device node so DOS does not relaunch
+it on every volume reference.  Inherits the v0.9.x fixes: ftruncate
+return-value convention, tag-matched 9P transport, dedicated Tflush
+buffer, held-open DMA mappings, V9P_Reset() recovery, FID orphan
+tracking, PPC time-base wallclock timeouts, lwsync barriers for
+cacheable RAM.
 
 ## License
 

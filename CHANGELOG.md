@@ -2,6 +2,46 @@
 
 All notable changes to Virtio9PFS-handler are documented here.
 
+## 0.10.0-beta (10 June 2026)
+
+### Graceful exit when no 9P device is present
+
+Booting a machine whose QEMU configuration has no `virtio-9p-pci`
+device used to hold up the Workbench in two ways, both fixed:
+
+- **No more blocking boot requester** — the handler previously failed
+  the mount with `DOSFALSE`, which made the boot-time mounter raise a
+  blocking *"Could not mount device"* requester that froze the boot
+  until dismissed.  The handler now replies success to the startup
+  packet and instead removes its own DOS device node, so the volume
+  silently vanishes and boot continues straight to Workbench.
+- **No more relaunch storm** — a handler that exits without
+  establishing `dn_Port` is restarted by DOS on *every* subsequent
+  reference to the device (per ACTION_STARTUP semantics): each
+  `Dir SHARED:`, file requester, or Workbench scan would reload the
+  handler from `L:`, re-scan PCI, fail, and exit, stalling the caller
+  for seconds each time.  With the device node removed, references
+  fail instantly with "object not found" and the handler never
+  respawns.
+
+The node removal is strictly non-blocking (`AttemptLockDosList` with a
+bounded retry window) and happens only *after* the startup packet is
+replied — the mount caller holds the DosList semaphore while waiting
+for that reply, so a blocking `RemDosEntry` first would deadlock the
+boot.  If the lock cannot be taken the removal is skipped; the worst
+case is the old relaunch-per-access behaviour, never a hang.
+
+A single diagnostic line is emitted on the serial console (present in
+release builds too):
+`[virtio9p] No 9P device -- mount declined, device node removed.`
+
+### Test tooling
+
+- New `tools/qemu-regression/robustness/repro-nodevice.ps1` — boots
+  the regression machine without the virtio-9p device to exercise the
+  decline path (`-WithDevice` includes the device, e.g. for staging a
+  new binary into `L:` between runs).
+
 ## 0.9.1-beta (15 May 2026)
 
 ### Bug fixes
