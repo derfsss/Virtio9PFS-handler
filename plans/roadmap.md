@@ -1,6 +1,6 @@
 # Virtio9PFS-handler Roadmap
 
-Last updated: 15 May 2026
+Last updated: 10 June 2026
 
 This is a forward-looking roadmap. For the per-release history of what
 has actually shipped, see [CHANGELOG.md](../CHANGELOG.md).
@@ -20,6 +20,9 @@ has actually shipped, see [CHANGELOG.md](../CHANGELOG.md).
   orphan tracking, V9P_Reset, PPC time-base wallclock timeouts, lwsync
   barriers, bounds-checked marshal; 31-case robustness suite covering
   ~96% of v9p_* FUSE callbacks
+- **v0.10.0-beta** (Jun 2026) — Graceful exit when no 9P device present:
+  no blocking boot requester, device node removed so DOS doesn't
+  relaunch the handler on every volume reference
 
 ---
 
@@ -66,6 +69,33 @@ The criteria for declaring a 1.0:
 
 These are speculative — not committed for any specific release.
 
+- **Installer switch** — replace `install.sh` with an
+  InstallerScriptGen-generated `install.py` (+ locale file + drawer
+  icon) for the AmigaOS 4.1 FE U3 Python Installation Utility. Open
+  decisions: keep `install.sh` as a pre-U3 fallback, and update
+  `make dist` packaging + README install sections.
+- **fsldma.resource accelerated copies** — evaluate
+  <https://wiki.amigaos.net/wiki/DMA_Resource> and adopt it if it
+  measurably speeds up the data path. The resource exposes
+  `CopyMemDMA()` / `CopyMemDMATags()` (blocking + signal-notified
+  non-blocking) backed by the NXP/Freescale SoC DMA engines, claiming
+  2-3x throughput over CPU copies for transfers ≥256 bytes (64-byte
+  alignment optimal, 64MB-1 max block). Scope notes from initial
+  research:
+  - Hardware exists only on X5000/20 (P5020), X5000/40 (P5040) and
+    A1222 (P1022) — *not* on the QEMU-emulated AmigaOne, Pegasos2, or
+    SAM460ex targets, so this benefits real Freescale hardware only;
+    `IExec->OpenResource(FSLDMA_NAME)` returning NULL is the natural
+    runtime gate, falling back to the existing CPU `memcpy`.
+  - Candidate copy sites: the FBX-buffer ↔ tx_buf/rx_buf staging copies
+    in `v9p_read`/`v9p_write` (up to 512 KB msize per transaction) —
+    measure first whether these copies are actually a bottleneck vs.
+    the 9P round-trip itself.
+  - Constraints: virtual-to-virtual or physical-to-physical only;
+    non-blocking notification requires physical-to-physical plus
+    explicit cache management (`CacheClearE()`), so the simple blocking
+    `CopyMemDMA()` (which self-falls-back to CPU on small/failed
+    transfers) is the sensible first step.
 - **Caching** — write-back (batch small writes, flush on release/fsync),
   read-ahead during sequential reads, and dirent caching for Workbench
   icon scans. Would require a `Control` field knob (`writeback=1`) since
