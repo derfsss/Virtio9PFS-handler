@@ -9,3 +9,23 @@ rust/
 __pycache__/
 *.pyc
 .runs/
+
+# Local IDE / editor / agent state
+.clangd
+
+# AI agent instruction / context files -- local only, not published
+CLAUDE.local.md
+AGENTS.md
+GEMINI.md
+.cursorrules
+.cursor/
+.windsurfrules
+.aider*
+.github/copilot-instructions.md
+
+# Internal planning / scratch documents (plans/roadmap.md is public)
+PLAN.md
+PROGRESS.md
+plans/*_plan.md
+plans/scratch*
+docs/PLAN*.md
