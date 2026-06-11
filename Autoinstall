@@ -1,0 +1,63 @@
+; Virtio9PFS-handler Autoinstall
+; Installs the VirtIO 9P filesystem handler for AmigaOS 4.1 Final Edition
+;
+; Double-click the Autoinstall icon in Workbench, or run from a shell
+; in the Virtio9PFS distribution directory:
+;   Execute Autoinstall
+;
+; Files installed automatically:
+;   L:Virtio9PFS-handler        - the filesystem handler
+;   DEVS:DOSDrivers/SHARED      - DOSDriver mount entry (volume SHARED:)
+
+echo ""
+echo "Virtio9PFS-handler -- QEMU host-shared folders for AmigaOS 4.1 FE"
+echo "=================================================================="
+echo ""
+
+; Check the handler exists in our distribution
+if not exists Virtio9PFS-handler
+  echo "ERROR: Virtio9PFS-handler not found in current directory."
+  echo "Please run this script from the Virtio9PFS distribution directory."
+  ask "Press RETURN to close this window."
+  quit 20
+endif
+
+echo "Installing Virtio9PFS-handler to L:..."
+copy Virtio9PFS-handler L:Virtio9PFS-handler CLONE QUIET
+if warn
+  echo "ERROR: Failed to copy Virtio9PFS-handler to L:"
+  ask "Press RETURN to close this window."
+  quit 20
+endif
+
+if exists SHARED
+  echo "Installing DOSDriver to DEVS:DOSDrivers/SHARED..."
+  copy SHARED DEVS:DOSDrivers/SHARED CLONE QUIET
+  if warn
+    echo "ERROR: Failed to copy SHARED to DEVS:DOSDrivers/"
+    ask "Press RETURN to close this window."
+    quit 20
+  endif
+else
+  echo "WARNING: SHARED DOSDriver not found in this drawer -- skipped."
+endif
+
+echo ""
+echo "Installation complete."
+echo ""
+echo "=================================================================="
+echo "Start QEMU with a shared folder, e.g.:"
+echo ""
+echo "  -virtfs local,path=/host/folder,mount_tag=SHARED,"
+echo "          security_model=none,id=share0"
+echo ""
+echo "The mount_tag must match the DOSDriver name (SHARED)."
+echo "Reboot to activate the SHARED: volume.  If QEMU is started"
+echo "without a 9P device the handler declines the mount silently"
+echo "and boot continues normally."
+echo "=================================================================="
+echo ""
+
+; Keep the output window readable when launched from the Workbench icon
+; (IconX closes its console as soon as the script ends).
+ask "Press RETURN to close this window."

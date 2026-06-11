@@ -68,12 +68,13 @@ Requirements
 Installation
 ------------
 
-Quick Install (from AmigaOS Shell):
+Quick Install:
 
-  Extract the distribution archive, cd into the extracted directory, and run:
+  Extract the distribution archive and double-click the Autoinstall
+  icon in the extracted drawer -- or, from an AmigaOS Shell:
 
     cd RAM:Virtio9PFS
-    execute install.sh
+    execute Autoinstall
 
   This copies the handler to L: and the DOSDriver to DEVS:DOSDrivers/.
   Reboot to activate the SHARED: volume.

@@ -72,6 +72,19 @@ $(TEST_NATIVE_TARGET): test/test_p9_marshal.c test/exec/types.h src/p9_marshal.c
 	@mkdir -p $(BUILD_DIR)
 	$(HOST_CC) -Wall -O2 -I test -I include test/test_p9_marshal.c -o $@
 
+# Distribution --------------------------------------------------------------
+# `make dist`     — stage the release drawer under build/Virtio9PFS/
+#                   (handler + debug build + DOSDriver + Autoinstall with
+#                   its Workbench icon + docs).
+# `make dist-lha` — pack the staged drawer into a versioned LHA.  Uses
+#                   host lha when available, otherwise runs lha inside
+#                   the toolchain Docker image.
+#
+# Autoinstall + Autoinstall.info make the installer double-clickable
+# from Workbench (the icon's default tool is C:IconX).
+DOCKER_IMAGE ?= walkero/amigagccondocker:os4-gcc11
+DOCKER_RUN    = docker run --rm -v "$(CURDIR):/work" -w /work $(DOCKER_IMAGE)
+
 DIST_DIR = $(BUILD_DIR)/Virtio9PFS
 DIST_NAME = Virtio9PFS_$(shell grep HANDLER_VERSION include/version.h | head -1 | awk '{print $$3}').$(shell grep HANDLER_REVISION include/version.h | head -1 | awk '{print $$3}').$(shell grep HANDLER_BUILD include/version.h | head -1 | awk '{print $$3}')-beta
 DIST_ARCHIVE = $(BUILD_DIR)/$(DIST_NAME).lha
@@ -83,23 +96,47 @@ dist: all debug test
 	cp $(TARGET_DEBUG) $(DIST_DIR)/Virtio9PFS-handler.debug
 	cp $(TEST_TARGET) $(DIST_DIR)/test_9p
 	cp DOSDriver/SHARED $(DIST_DIR)/SHARED
-	cp install.sh $(DIST_DIR)/install.sh
+	cp Autoinstall $(DIST_DIR)/Autoinstall
+	cp Autoinstall.info $(DIST_DIR)/Autoinstall.info
 	cp README.txt $(DIST_DIR)/README
 	cp CHANGELOG.md $(DIST_DIR)/CHANGELOG
-	cd $(BUILD_DIR) && lha -c $(DIST_NAME).lha Virtio9PFS/
-	rm -rf $(DIST_DIR)
-	@echo "Created $(DIST_ARCHIVE)"
+	@echo "=== Staged distribution drawer ==="
+	@find $(DIST_DIR) -type f | sort
+
+dist-lha: dist
+	rm -f $(DIST_ARCHIVE)
+	@if command -v lha >/dev/null 2>&1; then \
+	    (cd $(BUILD_DIR) && lha ao5q $(DIST_NAME).lha Virtio9PFS); \
+	else \
+	    echo "lha not on PATH — packing inside Docker"; \
+	    $(DOCKER_RUN) sh -c 'cd $(BUILD_DIR) && lha ao5q /work/$(DIST_ARCHIVE) Virtio9PFS'; \
+	fi
+	@ls -la $(DIST_ARCHIVE)
 
 clean:
 	rm -rf $(BUILD_DIR)
 
+# Dev convenience: copy the build products into the QEMU shared folder
+# (mapped into the guest as virtfs).  Machine-specific — override
+# SHARED_DIR as needed.
 install: all debug test
 	cp $(TARGET) $(SHARED_DIR)/Virtio9PFS-handler
 	cp $(TARGET_DEBUG) $(SHARED_DIR)/Virtio9PFS-handler.debug
 	cp DOSDriver/SHARED $(SHARED_DIR)/SHARED.DOSDriver
 	cp $(TEST_TARGET) $(SHARED_DIR)/test_9p
 
-.PHONY: all debug clean install test dist
+help:
+	@echo "Virtio9PFS-handler build system"
+	@echo ""
+	@echo "  make all       - release handler (default)"
+	@echo "  make debug     - debug handler (DPRINTF active)"
+	@echo "  make test      - AmigaOS test program"
+	@echo "  make dist      - stage release drawer in $(DIST_DIR)/"
+	@echo "  make dist-lha  - pack the drawer into $(DIST_ARCHIVE)"
+	@echo "  make install   - copy builds to \$$(SHARED_DIR) (dev only)"
+	@echo "  make clean     - remove $(BUILD_DIR)/"
+
+.PHONY: all debug clean install test dist dist-lha help
 
 # Pull in auto-generated header dependency files (-MMD -MP).  '-' suppresses
 # 'no such file' on first build before any .d exists.

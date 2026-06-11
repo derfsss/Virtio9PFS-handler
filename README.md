@@ -112,14 +112,14 @@ On Windows, the `-virtfs` shorthand may not work. Use the explicit
 
 ## Installation
 
-### Quick install (from AmigaOS Shell)
+### Quick install
 
-Extract the distribution archive, `cd` into the extracted directory,
-and run:
+Extract the distribution archive and double-click the **Autoinstall**
+icon in the extracted drawer — or, from an AmigaOS Shell:
 
 ```
 cd RAM:Virtio9PFS
-execute install.sh
+execute Autoinstall
 ```
 
 This copies the handler to `L:` and the DOSDriver to
@@ -207,7 +207,7 @@ src/
 └── virtio/                 Dual-mode VirtIO init, virtqueue, ISR
 
 DOSDriver/SHARED            Example DOSDriver mount entry
-install.sh                  AmigaOS Shell installer script
+Autoinstall                 Installer script (Workbench icon or Shell)
 ```
 
 ### Architecture notes
