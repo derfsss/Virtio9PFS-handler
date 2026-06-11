@@ -1,21 +1,32 @@
 # Virtio9PFS-handler
 
-A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
-folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
+A FileSysBox-based filesystem handler for AmigaOS 4.1 Final Edition that mounts QEMU host-shared folders as DOS volumes via VirtIO 9P (9P2000.L).
 
-**Status: Beta (v0.10.0)** — tested on QEMU AmigaOne (legacy VirtIO),
-Pegasos2 (modern VirtIO), and SAM460ex. Use at your own risk.
+**Status:** Beta (v0.10.0) — tested on QEMU AmigaOne (legacy VirtIO), Pegasos2 (modern VirtIO), and SAM460ex.
 
-**Important:** Official QEMU for Windows (x64) does not include `-virtfs`
-support. However, it can be patched — see [Windows QEMU Setup](#windows-qemu-setup)
-below.
+> ⚠️ **Beta — actively under development.** Expect bugs and rough
+> edges; do not rely on it for anything important. Use at your own
+> risk.
 
-## What It Does
+---
 
-When running AmigaOS under QEMU with a `-virtfs` shared folder, this handler
-presents the host directory as a native AmigaOS volume (e.g. `SHARED:`). You
-can browse, copy, create, rename, and delete files on the host filesystem
-directly from Workbench or the Shell.
+## Overview
+
+When running AmigaOS under QEMU with a `-virtfs` shared folder, this
+handler presents the host directory as a native AmigaOS volume (e.g.
+`SHARED:`). You can browse, copy, create, rename, and delete files on
+the host filesystem directly from Workbench or the Shell.
+
+This is a **handler**, not a device driver: there is no `.device`
+file, no `BeginIO`/`AbortIO`, and no block layer. The 9P protocol is
+file-level, so the handler IS the filesystem. FileSysBox handles all
+DOS packet translation; the handler implements FUSE callbacks.
+
+**Important:** Official QEMU for Windows (x64) does not include
+`-virtfs` support, but it can be patched — see
+[Windows QEMU Setup](#windows-qemu-setup) below.
+
+---
 
 ## Features
 
@@ -35,18 +46,16 @@ directly from Workbench or the Shell.
   split into multiple 9P transactions
 - **512 KB message size** — negotiates 512 KB msize with QEMU for maximum
   throughput; a 1 MB file transfer needs only 2 round-trips instead of 16
-- **DMA-safe buffers** — uses `MEMF_SHARED` allocations with cached physical
+- **DMA-safe buffers** — `MEMF_SHARED` allocations with cached physical
   addresses and PPC `dcbst`/`dcbf` cache management for zero-copy DMA
-- **Polled completion** — fast used-ring polling for VirtIO completions;
-  avoids signal-based Wait() conflicts with FileSysBox event loop. Asks
-  the device not to interrupt on every completion (`VRING_AVAIL_F_NO_INTERRUPT`)
-  to keep poll-mode overhead low
 - **Wall-clock transaction timeout** — every 9P transaction has a 10-second
   PPC time-base budget; stalled transactions are cancelled with a Tflush
-  on a dedicated buffer and the FID is marked orphaned
-- **No newlib dependency** — uses `_start()` entry point with `-nostartfiles`;
-  inline string/memory helpers in `string_utils.h`
+  and the FID is marked orphaned
+- **Graceful no-device boot** — if QEMU is started without a 9P device, the
+  handler declines the mount silently and boot continues normally
 - **Automatic installer** — AmigaOS Shell script copies handler and DOSDriver
+
+---
 
 ## Requirements
 
@@ -54,44 +63,11 @@ directly from Workbench or the Shell.
 - `filesysbox.library` v54 or newer (included with OS 4.1 FE)
 - QEMU 10.0+ with VirtIO 9P support (Linux, WSL2, macOS, or patched Windows —
   see [Windows QEMU Setup](#windows-qemu-setup))
-- QEMU emulating a PPC AmigaOS machine (tested on AmigaOne, Pegasos2, and
-  SAM460ex)
+- A supported QEMU PPC machine (tested on AmigaOne, Pegasos2, and SAM460ex)
 
-## Building
+---
 
-Cross-compile from a Linux host (or WSL2) using the AmigaOS GCC 11 Docker
-image:
-
-```sh
-docker run --rm -v /path/to/repo:/src -w /src \
-    walkero/amigagccondocker:os4-gcc11 make clean
-docker run --rm -v /path/to/repo:/src -w /src \
-    walkero/amigagccondocker:os4-gcc11 make all
-```
-
-The handler binary is output to `build/Virtio9PFS-handler`.
-
-## Installation
-
-### Quick Install (from AmigaOS Shell)
-
-Extract the distribution archive, `cd` into the extracted directory, and run:
-
-```
-cd RAM:Virtio9PFS
-execute install.sh
-```
-
-This copies the handler to `L:` and the DOSDriver to `DEVS:DOSDrivers/`.
-Reboot to activate the `SHARED:` volume.
-
-### Manual Install
-
-1. Copy `Virtio9PFS-handler` to `L:` on your AmigaOS system
-2. Copy `SHARED` to `DEVS:DOSDrivers/SHARED`
-3. Reboot to activate (or mount manually)
-
-### QEMU Configuration
+## QEMU Setup
 
 Add the `-virtfs` option to your QEMU command line to share a host folder:
 
@@ -101,22 +77,23 @@ qemu-system-ppc -M amigaone \
     ...
 ```
 
-The `mount_tag` must match the DOSDriver name (e.g. `SHARED` for `DEVS:DOSDrivers/SHARED`).
-QEMU automatically creates the appropriate VirtIO 9P PCI device for the machine type.
+The `mount_tag` must match the DOSDriver name (e.g. `SHARED` for
+`DEVS:DOSDrivers/SHARED`). QEMU automatically creates the appropriate
+VirtIO 9P PCI device for the machine type.
 
 ### Windows QEMU Setup
 
-Official Windows QEMU builds do not include VirtIO 9P (`-virtfs`) support.
-You can patch and rebuild QEMU yourself to enable it. Community-maintained
-patches are available at:
+Official Windows QEMU builds do not include VirtIO 9P (`-virtfs`)
+support. You can patch and rebuild QEMU yourself to enable it.
+Community-maintained patches are available at:
 
 - **Pre-built Windows QEMU binaries with 9P patches:**
   https://github.com/arixmkii/qcw/tags
 - **Patch files (to apply to upstream QEMU source):**
   https://github.com/arixmkii/qcw/tree/main/patches/qemu
 
-On Windows, the `-virtfs` shorthand may not work. Use the explicit `-fsdev` +
-`-device` syntax instead:
+On Windows, the `-virtfs` shorthand may not work. Use the explicit
+`-fsdev` + `-device` syntax instead:
 
 ```
 -fsdev local,security_model=mapped-xattr,id=fsdev0,path=D:\SHARED
@@ -124,13 +101,37 @@ On Windows, the `-virtfs` shorthand may not work. Use the explicit `-fsdev` +
 ```
 
 **Notes:**
-- `virtio-9p-pci-non-transitional` (modern VirtIO 1.0) is required for Pegasos2.
-  For AmigaOne, use `virtio-9p-pci` (legacy) instead.
-- `security_model=mapped-xattr` stores Unix permission metadata in NTFS Alternate
-  Data Streams, allowing `protect` (chmod) to work on the shared volume.
-  `security_model=none` passes through host permissions directly.
+- `virtio-9p-pci-non-transitional` (modern VirtIO 1.0) is required for
+  Pegasos2. For AmigaOne, use `virtio-9p-pci` (legacy) instead.
+- `security_model=mapped-xattr` stores Unix permission metadata in NTFS
+  Alternate Data Streams, allowing `protect` (chmod) to work on the
+  shared volume. `security_model=none` passes through host permissions
+  directly.
 
-### DOSDriver Configuration
+---
+
+## Installation
+
+### Quick install (from AmigaOS Shell)
+
+Extract the distribution archive, `cd` into the extracted directory,
+and run:
+
+```
+cd RAM:Virtio9PFS
+execute install.sh
+```
+
+This copies the handler to `L:` and the DOSDriver to
+`DEVS:DOSDrivers/`. Reboot to activate the `SHARED:` volume.
+
+### Manual install
+
+1. Copy `Virtio9PFS-handler` to `L:` on your AmigaOS system
+2. Copy `SHARED` to `DEVS:DOSDrivers/SHARED`
+3. Reboot to activate (or mount manually)
+
+### DOSDriver configuration
 
 The included `DOSDriver/SHARED` file contains:
 
@@ -147,74 +148,71 @@ Control   = "auto"
 - `Control = "auto"` — auto-detect the first VirtIO 9P PCI device
 - The volume name matches the QEMU `mount_tag` parameter
 
-If the machine is booted **without** a VirtIO 9P device (e.g. QEMU started
-without `-virtfs`/`-device virtio-9p-pci`), the handler declines the mount
-silently: no requester appears, boot continues normally, and the volume
-simply does not exist. A single diagnostic line is written to the serial
-console. The DOSDriver can stay installed permanently regardless of whether
-the device is present.
+If the machine is booted **without** a VirtIO 9P device (e.g. QEMU
+started without `-virtfs`), the handler declines the mount silently:
+no requester appears, boot continues normally, and the volume simply
+does not exist. The DOSDriver can stay installed permanently
+regardless of whether the device is present.
 
-## Debug Output
+---
 
-Compile with `-DDEBUG` to enable serial debug output (QEMU serial console or
-Sashimi on real hardware). All debug messages are prefixed with `[virtio9p]`.
+## Building from Source
 
-To build with debug output:
+Cross-compile from a Linux host (or WSL2) using the AmigaOS GCC 11
+Docker image:
+
+```sh
+docker run --rm -v /path/to/repo:/src -w /src \
+    walkero/amigagccondocker:os4-gcc11 make clean
+docker run --rm -v /path/to/repo:/src -w /src \
+    walkero/amigagccondocker:os4-gcc11 make all
+```
+
+The handler binary is output to `build/Virtio9PFS-handler`.
+
+### Debug build
+
+Compile with `-DDEBUG` to enable serial debug output (QEMU serial
+console or Sashimi on real hardware). All debug messages are prefixed
+with `[virtio9p]`:
 
 ```sh
 docker run --rm -v /path/to/repo:/src -w /src \
     walkero/amigagccondocker:os4-gcc11 make CFLAGS="-O2 -Wall -I./include -fno-tree-loop-distribute-patterns -DDEBUG"
 ```
 
+---
+
 ## Project Structure
 
 ```
-Virtio9PFS-handler/
-+-- include/
-|   +-- version.h              Version string macros
-|   +-- debug.h                Debug output macros (DPRINTF)
-|   +-- string_utils.h        Inline string/memory helpers (no newlib)
-|   +-- virtio9p_handler.h    Main handler state struct (V9PHandler)
-|   +-- p9_protocol.h         9P message types, constants, wire format
-|   +-- p9_client.h           9P client session API
-|   +-- fid_pool.h            FID number allocator
-|   +-- pci/
-|   |   +-- pci_discovery.h   PCI device discovery
-|   |   +-- pci_modern_detect.h PCI capability walking
-|   +-- virtio/
-|       +-- virtio_pci.h      Legacy VirtIO register offsets
-|       +-- virtio_pci_modern.h Modern MMIO helpers
-|       +-- virtqueue.h       Virtqueue struct and operations
-|       +-- virtio_init.h     VirtIO init/cleanup API
-|       +-- virtio_irq.h      Interrupt handler API
-+-- src/
-|   +-- main.c                Handler entry (_start), FBX setup
-|   +-- fuse_ops.c            FUSE callbacks (25 operations)
-|   +-- p9_client.c           9P session + V9P_Transact
-|   +-- p9_marshal.c          9P wire format marshal/unmarshal
-|   +-- fid_pool.c            FID allocator implementation
-|   +-- pci/
-|   |   +-- pci_discovery.c   Modern/legacy PCI scan
-|   |   +-- pci_modern_detect.c PCI capability walking
-|   +-- virtio/
-|       +-- virtio_init.c     Dual-mode VirtIO init + mount tag
-|       +-- virtqueue.c       Virtqueue alloc/add/kick/get
-|       +-- virtio_irq.c      ISR with mode-aware register read
-+-- DOSDriver/
-|   +-- SHARED                Example DOSDriver mount entry
-+-- install.sh                AmigaOS Shell installer script
-+-- Makefile
-+-- .clangd
+include/
+├── version.h               Version string macros
+├── debug.h                 Debug output macros (DPRINTF)
+├── string_utils.h          Inline string/memory helpers (no newlib)
+├── virtio9p_handler.h      Main handler state struct (V9PHandler)
+├── p9_protocol.h           9P message types, constants, wire format
+├── p9_client.h             9P client session API
+├── fid_pool.h              FID number allocator
+├── pci/                    PCI discovery + capability walking
+└── virtio/                 VirtIO registers, virtqueue, init, IRQ
+
+src/
+├── main.c                  Handler entry (_start), FileSysBox setup
+├── fuse_ops.c              FUSE callbacks (25 operations)
+├── p9_client.c             9P session + V9P_Transact
+├── p9_marshal.c            9P wire format marshal/unmarshal
+├── fid_pool.c              FID allocator implementation
+├── pci/                    Modern/legacy PCI scan
+└── virtio/                 Dual-mode VirtIO init, virtqueue, ISR
+
+DOSDriver/SHARED            Example DOSDriver mount entry
+install.sh                  AmigaOS Shell installer script
 ```
 
-## Architecture
+### Architecture notes
 
-This is a **handler**, not a device driver. There is no `.device` file, no
-`BeginIO`/`AbortIO`, and no block layer. The 9P protocol is file-level, so the
-handler IS the filesystem. FileSysBox handles all DOS packet translation; we
-only implement FUSE callbacks.
-
-### Endianness
+Endianness at each layer:
 
 | Layer | Endianness | Swap? |
 |-------|-----------|-------|
@@ -224,36 +222,35 @@ only implement FUSE callbacks.
 | VirtIO config (legacy) | Host-native | PCI I/O functions handle it |
 | VirtIO config (modern) | LE | `stwbrx`/`lwbrx` handle LE conversion |
 
-## How This Project Was Created
+Completion handling is polled (fast used-ring polling with
+`VRING_AVAIL_F_NO_INTERRUPT`) to avoid signal-based `Wait()` conflicts
+with the FileSysBox event loop.
 
-This handler was developed with the assistance of **Claude Code** (Anthropic's
-AI coding agent, model Claude Opus 4). The entire implementation — VirtIO
-transport, 9P protocol, FUSE callbacks, and build system — was designed and
-written collaboratively between a human developer and the AI agent over multiple
-sessions.
+---
 
-The AI agent was provided with:
-- The AmigaOS 4.1 SDK headers
-- A VirtIO device driver skeleton project as reference
-- The VirtIO specification and 9P2000.L protocol documentation
-- FileSysBox FUSE header definitions and example code 
+## Documentation
 
-The human developer provided architectural direction, reviewed the implementation
-plan, and tested on QEMU-emulated AmigaOne.
-
-## Version History
-
-See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+- [CHANGELOG.md](CHANGELOG.md) — full release history.
 
 **Current: 0.10.0-beta** — graceful exit when no VirtIO 9P device is
 present: the handler declines the mount without raising a blocking
-boot requester and removes its device node so DOS does not relaunch
-it on every volume reference.  Inherits the v0.9.x fixes: ftruncate
+boot requester and removes its device node so DOS does not relaunch it
+on every volume reference. Inherits the v0.9.x fixes: ftruncate
 return-value convention, tag-matched 9P transport, dedicated Tflush
 buffer, held-open DMA mappings, V9P_Reset() recovery, FID orphan
 tracking, PPC time-base wallclock timeouts, lwsync barriers for
 cacheable RAM.
 
+---
+
+## Development
+
+This handler was developed with [Claude](https://claude.ai) (Anthropic)
+acting as the primary engineer — writing the C code, designing the
+architecture, debugging hardware-level issues, and navigating the
+AmigaOS 4.1 SDK — with a human developer directing, reviewing, and
+testing the result.
+
 ## License
 
-Copyright 2026. All rights reserved.
+Copyright © 2026. All rights reserved.
