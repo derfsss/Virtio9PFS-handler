@@ -114,16 +114,18 @@ On Windows, the `-virtfs` shorthand may not work. Use the explicit
 
 ### Quick install
 
-Extract the distribution archive and double-click the **Autoinstall**
-icon in the extracted drawer — or, from an AmigaOS Shell:
+Extract the distribution archive and double-click the **install.py**
+icon in the extracted drawer — the AmigaOS **Installation Utility**
+wizard copies the handler to `L:` and the DOSDriver to
+`DEVS:DOSDrivers/`, then offers a reboot to activate the `SHARED:`
+volume.  From a shell:
 
 ```
 cd RAM:Virtio9PFS
-execute Autoinstall
+"SYS:Utilities/Installation Utility" PACKAGE=install.py
 ```
 
-This copies the handler to `L:` and the DOSDriver to
-`DEVS:DOSDrivers/`. Reboot to activate the `SHARED:` volume.
+(the drawer must be the current directory).
 
 ### Manual install
 
@@ -207,7 +209,7 @@ src/
 └── virtio/                 Dual-mode VirtIO init, virtqueue, ISR
 
 DOSDriver/SHARED            Example DOSDriver mount entry
-Autoinstall                 Installer script (Workbench icon or Shell)
+install.py                  AmigaOS Installation Utility wizard
 ```
 
 ### Architecture notes

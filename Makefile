@@ -74,14 +74,18 @@ $(TEST_NATIVE_TARGET): test/test_p9_marshal.c test/exec/types.h src/p9_marshal.c
 
 # Distribution --------------------------------------------------------------
 # `make dist`     — stage the release drawer under build/Virtio9PFS/
-#                   (handler + debug build + DOSDriver + Autoinstall with
-#                   its Workbench icon + docs).
+#                   (handler + debug build + DOSDriver + the
+#                   Installation Utility wizard + docs).
 # `make dist-lha` — pack the staged drawer into a versioned LHA.  Uses
 #                   host lha when available, otherwise runs lha inside
 #                   the toolchain Docker image.
 #
-# Autoinstall + Autoinstall.info make the installer double-clickable
-# from Workbench (the icon's default tool is C:IconX).
+# The installer is the OS Installation Utility wizard: installer/
+# carries the committed install.py (+ locale module), pre-generated
+# from installer/virtio9pfs_installer_fixture.py.  install.py.info's
+# default tool is the Installation Utility, so the wizard launches
+# from a Workbench double-click with the drawer as current directory.
+# drawer.info becomes the archive-root drawer icon.
 DOCKER_IMAGE ?= walkero/amigagccondocker:os4-gcc11
 DOCKER_RUN    = docker run --rm -v "$(CURDIR):/work" -w /work $(DOCKER_IMAGE)
 
@@ -91,25 +95,27 @@ DIST_ARCHIVE = $(BUILD_DIR)/$(DIST_NAME).lha
 
 dist: all debug test
 	rm -rf $(DIST_DIR)
-	mkdir -p $(DIST_DIR)
-	cp $(TARGET) $(DIST_DIR)/Virtio9PFS-handler
+	mkdir -p $(DIST_DIR)/content
+	cp $(TARGET) $(DIST_DIR)/content/Virtio9PFS-handler
+	cp DOSDriver/SHARED $(DIST_DIR)/content/SHARED
 	cp $(TARGET_DEBUG) $(DIST_DIR)/Virtio9PFS-handler.debug
 	cp $(TEST_TARGET) $(DIST_DIR)/test_9p
-	cp DOSDriver/SHARED $(DIST_DIR)/SHARED
-	cp Autoinstall $(DIST_DIR)/Autoinstall
-	cp Autoinstall.info $(DIST_DIR)/Autoinstall.info
+	cp installer/install.py $(DIST_DIR)/install.py
+	cp installer/install.py.info $(DIST_DIR)/install.py.info
+	cp installer/Virtio9PFSInstallerLocale.py $(DIST_DIR)/Virtio9PFSInstallerLocale.py
+	cp installer/drawer.info $(BUILD_DIR)/Virtio9PFS.info
 	cp README.txt $(DIST_DIR)/README
 	cp CHANGELOG.md $(DIST_DIR)/CHANGELOG
 	@echo "=== Staged distribution drawer ==="
-	@find $(DIST_DIR) -type f | sort
+	@find $(DIST_DIR) $(BUILD_DIR)/Virtio9PFS.info -type f | sort
 
 dist-lha: dist
 	rm -f $(DIST_ARCHIVE)
 	@if command -v lha >/dev/null 2>&1; then \
-	    (cd $(BUILD_DIR) && lha ao5q $(DIST_NAME).lha Virtio9PFS); \
+	    (cd $(BUILD_DIR) && lha ao5q $(DIST_NAME).lha Virtio9PFS Virtio9PFS.info); \
 	else \
 	    echo "lha not on PATH — packing inside Docker"; \
-	    $(DOCKER_RUN) sh -c 'cd $(BUILD_DIR) && lha ao5q /work/$(DIST_ARCHIVE) Virtio9PFS'; \
+	    $(DOCKER_RUN) sh -c 'cd $(BUILD_DIR) && lha ao5q /work/$(DIST_ARCHIVE) Virtio9PFS Virtio9PFS.info'; \
 	fi
 	@ls -la $(DIST_ARCHIVE)
 

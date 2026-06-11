@@ -70,11 +70,12 @@ Installation
 
 Quick Install:
 
-  Extract the distribution archive and double-click the Autoinstall
-  icon in the extracted drawer -- or, from an AmigaOS Shell:
+  Extract the distribution archive and double-click the install.py
+  icon in the extracted drawer -- the AmigaOS Installation Utility
+  wizard performs the installation.  From an AmigaOS Shell:
 
     cd RAM:Virtio9PFS
-    execute Autoinstall
+    "SYS:Utilities/Installation Utility" PACKAGE=install.py
 
   This copies the handler to L: and the DOSDriver to DEVS:DOSDrivers/.
   Reboot to activate the SHARED: volume.
