@@ -12,7 +12,9 @@ install.py + Virtio9PFSInstallerLocale.py are emitted from this
 fixture by an in-house installer-script generator and committed, so
 building the distribution archive needs no extra tooling.  This
 fixture is the authoritative description of the installer's pages,
-messages, and behaviour.
+messages, and behaviour.  The page idioms are expanded from
+`installergen.presets` -- the field-tested templates shared by all of
+this author's driver installers.
 
 Archive layout consumed by the script (see `make dist`):
 
@@ -30,50 +32,46 @@ content/ paths, exactly like the OS's own update installers.
 
 from installergen import (
     Project, Page, PageKind, Package, PackageKind, PostInstallAction,
-    LocaleString, LocaleRef, GuiBlock, GuiWidget, WidgetKind,
-    GroupOrientation, Frame, LabelAlign,
+    LocaleString, LocaleRef, Handler,
 )
-from installergen.model import Handler
+from installergen.presets import (
+    README_BUTTON_LOCALE, welcome_with_readme, finish_page,
+)
 
 
+# NOTE: the Installation Utility's page text is PLAIN TEXT only and the
+# label does NOT scroll -- keep pages inside the ~20-rendered-line lint
+# budget and defer detail to the bundled readme.  Formatting follows
+# Hyperion's own Update installers: leading blank line, paragraph
+# spacing, quoted file and button names, explicit navigation cue.
 locale = [
     LocaleString(
         "MSG_WELCOME",
         "\nWelcome to the installation of the Virtio9PFS filesystem "
         "handler.\n\n"
         "Virtio9PFS-handler mounts QEMU host-shared folders as native "
-        "AmigaOS volumes via VirtIO 9P.  It is intended for AmigaOS "
-        "4.1 Final Edition systems running inside QEMU and serves no "
-        "purpose on real hardware.\n\n"
+        "AmigaOS volumes via VirtIO 9P.\n\n"
         "The following changes will be made to your system:\n\n"
         "    1.  Virtio9PFS-handler will be copied to \"L:\"\n\n"
         "    2.  The \"SHARED\" DOSDriver will be copied to "
         "\"DEVS:DOSDrivers\"\n\n"
-        "A system restart is required to activate the SHARED: "
-        "volume.\n\n"
-        "Click \"View Readme\" below for manual installation details, "
-        "the QEMU shared-folder setup, and general instructions on "
+        "A system restart activates the SHARED: volume.  Click "
+        "\"View Readme\" below for manual installation details, the "
+        "QEMU shared-folder setup, and general instructions on "
         "use.\n\n\n"
         "Press \"Next\" to continue."),
-    LocaleString(
-        "MSG_README_BUTTON",
-        "View Readme..."),
+    README_BUTTON_LOCALE,
     LocaleString(
         "MSG_FINISH",
-        "\nThe installation completed successfully.\n\n"
+        "\nThe installation has finished.\n\n"
         "Virtio9PFS-handler has been copied to \"L:\" and the "
         "\"SHARED\" DOSDriver to \"DEVS:DOSDrivers\".  The SHARED: "
-        "volume will appear after the next system restart.\n\n"
-        "Please ensure QEMU is started with a shared folder:\n\n"
-        "    -virtfs local,path=/host/folder,mount_tag=SHARED,"
-        "security_model=none,id=share0\n\n"
-        "The mount_tag must match the DOSDriver name (SHARED).  If "
-        "QEMU is started without a 9P device, the handler declines "
-        "the mount silently and boot continues normally -- the "
-        "DOSDriver can stay installed permanently.\n\n"
-        "Please note: when restarting from within QEMU, the virtual "
-        "machine may power off instead of restarting.  Should this "
-        "occur, simply start QEMU again.\n\n\n"
+        "volume appears after the next system restart.\n\n"
+        "QEMU must share a host folder whose mount_tag matches the "
+        "DOSDriver name (SHARED); the exact -virtfs setup is in the "
+        "README file in this drawer.  If no 9P device is present the "
+        "handler declines the mount silently and boot continues "
+        "normally.\n\n\n"
         "Press \"Finish\" to exit the installation."),
     LocaleString(
         "MSG_REBOOT",
@@ -81,58 +79,15 @@ locale = [
 ]
 
 
-# Welcome page is a GUI page (same rendered look as WELCOME) so it can
-# carry a "View Readme" button -- U2's kicklayout-page button idiom:
-# AddButton onclick handler launching NotePad on the bundled readme.
-welcome_page = Page(
-    var_name="welcomePage",
-    kind=PageKind.GUI,
-    on_click_handlers=[
-        Handler(
-            name="readmeLaunch",
-            params=["page", "id"],
-            body=(
-                "amiga.system('notepad *>NIL: \"README\"')\n"
-                "return True\n"
-            ),
-        ),
-    ],
-    gui=GuiBlock(
-        orientation=GroupOrientation.VERTICAL,
-        children=[
-            GuiWidget(kind=WidgetKind.LABEL,
-                      label=LocaleRef("MSG_WELCOME"),
-                      weight=6, align=LabelAlign.LEFT),
-            GuiBlock(
-                orientation=GroupOrientation.HORIZONTAL,
-                weight=0,
-                children=[
-                    GuiWidget(kind=WidgetKind.SPACE, weight=1),
-                    GuiWidget(
-                        kind=WidgetKind.BUTTON,
-                        frame=Frame.BUTTON,
-                        label=LocaleRef("MSG_README_BUTTON"),
-                        onclick="readmeLaunch",
-                        weight=10,
-                    ),
-                    GuiWidget(kind=WidgetKind.SPACE, weight=1),
-                ],
-            ),
-            GuiWidget(kind=WidgetKind.SPACE, weight=1),
-        ],
-    ),
-)
+# Welcome page with the View Readme button (proven preset).
+welcome_page = welcome_with_readme(LocaleRef("MSG_WELCOME"), "README")
 
 install_page = Page(
     var_name="installPage",
     kind=PageKind.INSTALL,
 )
 
-finish_page = Page(
-    var_name="finishPage",
-    kind=PageKind.FINISH,
-    strings={"message": LocaleRef("MSG_FINISH")},
-)
+finish = finish_page(LocaleRef("MSG_FINISH"))
 
 
 handler_package = Package(
@@ -173,7 +128,7 @@ project = Project(
     version="0.10.0",
     date="11.06.2026",
     locale_strings=locale,
-    pages=[welcome_page, install_page, finish_page],
+    pages=[welcome_page, install_page, finish],
     packages=[handler_package, dosdriver_package],
     post_install_actions=[reboot_action],
 )
