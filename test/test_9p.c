@@ -288,7 +288,7 @@ static void test_truncate(const char *volume)
  */
 static void test_statfs(const char *volume)
 {
-    BPTR lock = IDOS->Lock(volume, ACCESS_READ);
+    BPTR lock = IDOS->Lock(volume, SHARED_LOCK);
     if (!lock) {
         test_fail("statfs", "Cannot lock volume");
         return;
@@ -456,7 +456,7 @@ static void test_unlink(const char *volume)
     }
 
     /* Verify it's gone */
-    BPTR lock = IDOS->Lock(path, ACCESS_READ);
+    BPTR lock = IDOS->Lock(path, SHARED_LOCK);
     if (lock) {
         IDOS->UnLock(lock);
         test_fail("unlink", "File still exists after Delete");
@@ -485,7 +485,7 @@ static void test_rmdir(const char *volume)
         return;
     }
 
-    lock = IDOS->Lock(path, ACCESS_READ);
+    lock = IDOS->Lock(path, SHARED_LOCK);
     if (lock) {
         IDOS->UnLock(lock);
         test_fail("rmdir", "Directory still exists after Delete");
@@ -686,7 +686,7 @@ static void test_symlink(const char *volume)
     }
 
     /* Verify the symlink resolves (Lock should follow the symlink) */
-    BPTR lock = IDOS->Lock(linkpath, ACCESS_READ);
+    BPTR lock = IDOS->Lock(linkpath, SHARED_LOCK);
     IDOS->Delete(linkpath);
 
     if (lock) {
@@ -707,7 +707,7 @@ static void test_link(const char *volume)
     build_path(linkpath, sizeof(linkpath), volume, "testhardlink");
 
     /* MakeLink with LINK_HARD: second arg is a Lock on the source */
-    BPTR srclock = IDOS->Lock(srcpath, ACCESS_READ);
+    BPTR srclock = IDOS->Lock(srcpath, SHARED_LOCK);
     if (!srclock) {
         test_fail("link", "Cannot lock source file");
         return;
@@ -724,7 +724,7 @@ static void test_link(const char *volume)
     }
 
     /* Verify the hard link is accessible */
-    BPTR lock = IDOS->Lock(linkpath, ACCESS_READ);
+    BPTR lock = IDOS->Lock(linkpath, SHARED_LOCK);
     IDOS->Delete(linkpath);
 
     if (lock) {
@@ -921,14 +921,14 @@ static void test_rename_cross_dir(const char *volume)
     }
 
     /* Verify new path exists and old is gone */
-    BPTR lock = IDOS->Lock(dstpath, ACCESS_READ);
+    BPTR lock = IDOS->Lock(dstpath, SHARED_LOCK);
     if (!lock) {
         test_fail("rename_cross_dir", "Cannot Lock destination");
         return;
     }
     IDOS->UnLock(lock);
 
-    lock = IDOS->Lock(srcpath, ACCESS_READ);
+    lock = IDOS->Lock(srcpath, SHARED_LOCK);
     if (lock) {
         IDOS->UnLock(lock);
         test_fail("rename_cross_dir", "Source still exists");
