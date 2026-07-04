@@ -4,7 +4,7 @@ Virtio9PFS-handler
 A FileSysBox-based handler for AmigaOS 4.1 FE that mounts QEMU host-shared
 folders as DOS volumes via the VirtIO 9P (9P2000.L) protocol.
 
-Status: Beta (v0.10.0) -- tested on QEMU AmigaOne (legacy VirtIO),
+Status: Beta (v0.10.1) -- tested on QEMU AmigaOne (legacy VirtIO),
 Pegasos2 (modern VirtIO), and SAM460ex. Use at your own risk.
 
 Important: Official QEMU for Windows (x64) does not include -virtfs
@@ -197,6 +197,32 @@ implementation plan, and tested on QEMU-emulated AmigaOne.
 
 Version History
 ===============
+
+
+0.10.1-beta (5 July 2026)
+-------------------------
+
+  Defect-fix release from a full init-path code review, SDK-verified:
+  - Physically contiguous DMA memory (AVT_Contiguous) for the vring
+    and transact buffers -- a physically fragmented vring had the
+    device DMA into pages owned by other allocations: silent,
+    boot-layout-dependent memory corruption behind intermittent
+    "boot stops at a shell instead of Workbench" hangs.
+  - DMAEntry allocations NULL-checked; an init crash before the mount
+    reply used to deadlock the boot against the DosList semaphore.
+  - EVERY init failure (VirtIO init, IRQ, DMA, 9P handshake, missing
+    filesysbox) now declines the mount gracefully instead of raising
+    the blocking boot requester; node removal now uses the
+    SDK-sanctioned NonBlockingModifyDosEntry.
+  - GCIT_TimeBaseSpeed queried as uint64 (was clobbering 4 bytes of
+    stack and skewing the 10 s transact timeout).
+  - EndDMA paired with the exact StartDMA size and honest flags.
+  - Timeouts that fail to drain outstanding descriptors escalate to a
+    full transport reset, so late completions can never corrupt a
+    future response.
+  - Per-transaction cache maintenance cut from 2x512 KB to the actual
+    response length.  100 MB C:Copy (QEMU amigaone, TCG): ~64 MB/s
+    SHARED: -> RAM:, ~140 MB/s RAM: -> SHARED:.
 
 
 0.10.0-beta (10 June 2026)

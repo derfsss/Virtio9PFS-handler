@@ -2,6 +2,68 @@
 
 All notable changes to Virtio9PFS-handler are documented here.
 
+## 0.10.1-beta (5 July 2026)
+
+Defect-fix release from a full init-path code review, with every fix
+verified against the latest SDK autodocs (StartDMA/EndDMA, AllocVecTags,
+GetCPUInfo, NonBlockingModifyDosEntry, FbxSetupFS).
+
+### Boot safety
+
+- **Physically contiguous DMA memory** — the vring and the tx/rx/flush
+  transact buffers are now allocated with `AVT_Contiguous`.  Previously
+  the vring's physical contiguity was assumed but never verified: on a
+  boot where the allocation came back physically fragmented, the device
+  DMA'd its used ring into pages belonging to *other* allocations —
+  silent, boot-layout-dependent memory corruption and the prime suspect
+  for intermittent "boot stops at a shell instead of Workbench" hangs.
+  Fragmentation guards remain as defense-in-depth.
+- **`ASOT_DMAENTRY` allocations are now NULL-checked** — an allocation
+  failure during init crashed the handler *before* the mount reply,
+  leaving the boot mounter holding the DosList semaphore forever
+  (permanent boot hang under memory pressure).
+- **Every init failure now declines the mount gracefully** (reply
+  DOSTRUE, remove the device node) instead of replying DOSFALSE, which
+  raised the blocking boot-time "Could not mount device" requester and
+  left the node relaunchable on every access.  This extends the
+  0.10.0 no-device decline to VirtIO init, IRQ, DMA, 9P handshake, and
+  missing-filesysbox failures.
+- **Device-node removal now uses `NonBlockingModifyDosEntry`**
+  (`NBM_REMDOSENTRY`) — the SDK-sanctioned handler-safe call — instead
+  of the bounded `AttemptLockDosList`/`Delay` retry loop (which also
+  implied a Forbid internally).
+
+### Correctness
+
+- **`GCIT_TimeBaseSpeed` takes a `uint64*`** — a `uint32` was passed,
+  so the kernel's 8-byte write clobbered 4 bytes of adjacent stack and
+  (big-endian) left 0 in the variable, silently falling back to 33 MHz
+  and skewing the 10 s transact timeout on every machine.
+- **`EndDMA` is now called with the exact `StartDMA` size** — cleanup
+  used the renegotiated msize, violating the documented pairing
+  contract — and `DMAF_NoModify` is no longer claimed for regions the
+  device wrote (rx buffer, vring).
+- **Timeout escalation** — if the post-timeout Tflush drain fails to
+  recover both outstanding descriptor chains, the handler performs a
+  full transport reset (revoking all stale descriptors at the device)
+  so a very late server completion can never overwrite a future
+  response.  Observed firing end-to-end under tier 13 fault injection:
+  timeout → flush → drain 0/2 → reset → rehandshake → healthy.
+
+### Performance
+
+- **Per-transaction cache maintenance cut** from two full-msize
+  (2 × 512 KB) `dcbf` sweeps to just the actual response length.
+- Measured with plain `C:Copy` of a 100 MB file (QEMU amigaone, TCG,
+  release build): **~64 MB/s** SHARED: → RAM:, **~140 MB/s**
+  RAM: → SHARED: (SHA256-verified round trip).
+
+### Validation
+
+- Regression tiers 0-2 and 11-13 all green (DMA stability under 4 GB
+  page-cache pressure, transport reset + FID lifecycle, wall-clock
+  timeout), plus three consecutive cold boots with `Activate = 1`.
+
 ## 0.10.0-beta (10 June 2026)
 
 ### Graceful exit when no 9P device is present

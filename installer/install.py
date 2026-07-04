@@ -1,6 +1,6 @@
 #
 # Virtio9PFS Handler Install install.py
-# $VER: Virtio9PFS Handler Install 0.10.0 (11.06.2026)
+# $VER: Virtio9PFS Handler Install 0.10.1 (05.07.2026)
 # Auto-generated -- do not edit; regenerate from the fixture module.
 #
 

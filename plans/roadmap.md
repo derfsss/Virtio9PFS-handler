@@ -23,6 +23,12 @@ has actually shipped, see [CHANGELOG.md](../CHANGELOG.md).
 - **v0.10.0-beta** (Jun 2026) — Graceful exit when no 9P device present:
   no blocking boot requester, device node removed so DOS doesn't
   relaunch the handler on every volume reference
+- **v0.10.1-beta** (Jul 2026) — SDK-verified init-path defect fixes:
+  physically contiguous DMA memory (vring + transact buffers), decline
+  on every init failure, NonBlockingModifyDosEntry node removal, uint64
+  GCIT_TimeBaseSpeed, exact EndDMA pairing, timeout-drain escalation to
+  transport reset, response-sized cache invalidation (~64/140 MB/s
+  read/write for 100 MB C:Copy under TCG)
 
 ---
 

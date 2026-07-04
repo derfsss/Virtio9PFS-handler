@@ -2,7 +2,7 @@
 
 A FileSysBox-based filesystem handler for AmigaOS 4.1 Final Edition that mounts QEMU host-shared folders as DOS volumes via VirtIO 9P (9P2000.L).
 
-**Status:** Beta (v0.10.0) — tested on QEMU AmigaOne (legacy VirtIO), Pegasos2 (modern VirtIO), and SAM460ex.
+**Status:** Beta (v0.10.1) — tested on QEMU AmigaOne (legacy VirtIO), Pegasos2 (modern VirtIO), and SAM460ex.
 
 > ⚠️ **Beta — actively under development.** Expect bugs and rough
 > edges; do not rely on it for anything important. Use at your own
@@ -234,14 +234,17 @@ with the FileSysBox event loop.
 
 - [CHANGELOG.md](CHANGELOG.md) — full release history.
 
-**Current: 0.10.0-beta** — graceful exit when no VirtIO 9P device is
-present: the handler declines the mount without raising a blocking
-boot requester and removes its device node so DOS does not relaunch it
-on every volume reference. Inherits the v0.9.x fixes: ftruncate
-return-value convention, tag-matched 9P transport, dedicated Tflush
-buffer, held-open DMA mappings, V9P_Reset() recovery, FID orphan
-tracking, PPC time-base wallclock timeouts, lwsync barriers for
-cacheable RAM.
+**Current: 0.10.1-beta** — SDK-verified boot-safety fixes from a full
+init-path review: physically contiguous DMA memory for the vring and
+transact buffers (closes an intermittent boot-time memory-corruption
+path), graceful mount-decline on *every* init failure (no more blocking
+boot requester), `NonBlockingModifyDosEntry` node removal, uint64
+`GCIT_TimeBaseSpeed` (accurate wall-clock timeouts), exact
+StartDMA/EndDMA pairing, timeout-drain escalation to transport reset,
+and per-transaction cache maintenance cut to the actual response
+length (~64 MB/s read / ~140 MB/s write for a 100 MB `C:Copy` under
+QEMU TCG). Extends 0.10.0's no-device decline; inherits the v0.9.x
+transport and FID-lifecycle fixes.
 
 ---
 
