@@ -2,6 +2,7 @@
 #include "virtio9p_handler.h"
 #include "virtio/virtqueue.h"
 #include "virtio/virtio_pci.h"
+#include "virtio/virtio_init.h"   /* V9P_Reset (timeout escalation) */
 #include <proto/exec.h>
 #include <exec/memory.h>
 #include <exec/exectags.h>     /* GCIT_TimebaseFrequency */
@@ -263,6 +264,8 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
         fsg[1].addr = h->rx_phys;
         fsg[1].len  = h->msize;
 
+        uint32 drained = 0;
+
         cookie = (void *)h->flush_buf;
         rc = VirtQueue_AddBuf(IExec, vq, fsg, 1, 1, cookie);
         if (rc >= 0) {
@@ -290,7 +293,25 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
                 }
                 if (!ret_cookie)
                     break;
+                drained++;
             }
+        }
+
+        /* Escalate to a full transport reset unless BOTH outstanding
+         * descriptor chains (original request and Tflush) came back.
+         * A chain the device still holds points at tx_phys/rx_phys --
+         * shared with every future request -- so a very late completion
+         * would DMA the old R-message over a response we are parsing.
+         * Resetting the device (STATUS=0 in V9P_CleanupVirtIO) revokes
+         * all outstanding descriptors, closing that window for good.
+         * The in_reset guard keeps the rehandshake's own Tversion/
+         * Tattach timeouts from recursing back in here. */
+        if (drained < 2 && !h->in_reset) {
+            DPRINTF("V9P_Transact: drained %lu/2 after flush -- "
+                    "escalating to transport reset\n", drained);
+            if (!V9P_Reset(h))
+                DPRINTF("V9P_Transact: transport reset FAILED -- "
+                        "handler degraded until next successful reset\n");
         }
 
         DPRINTF("V9P_Transact: flush complete, returning timeout\n");
