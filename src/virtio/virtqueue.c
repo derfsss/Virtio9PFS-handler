@@ -35,7 +35,15 @@ struct virtqueue *VirtQueue_Allocate(struct ExecIFace *IExec, uint32 queue_index
     uint32 total_mem = used_offset + used_size;
 
     uint32 alloc_size = total_mem + VIRTIO_PCI_VRING_ALIGN;
-    void *raw = IExec->AllocVecTags(alloc_size, AVT_ClearWithValue, 0, AVT_Type, MEMF_SHARED, TAG_DONE);
+    /* AVT_Contiguous is essential: the device is programmed with a single
+     * physical base address and derives the avail/used ring addresses by
+     * fixed offsets from it.  A physically fragmented vring would have the
+     * device DMA into pages belonging to OTHER allocations -- silent,
+     * boot-layout-dependent memory corruption.  AVT_Lock defaults to TRUE
+     * for MEMF_SHARED, keeping the pages pinned. */
+    void *raw = IExec->AllocVecTags(alloc_size, AVT_ClearWithValue, 0,
+                                    AVT_Type, MEMF_SHARED,
+                                    AVT_Contiguous, TRUE, TAG_DONE);
 
     if (!raw)
         return NULL;
@@ -106,7 +114,11 @@ void VirtQueue_Free(struct ExecIFace *IExec, struct virtqueue *vq)
     if (!vq)
         return;
     if (vq->dma_entries > 0 && vq->desc) {
-        IExec->EndDMA(vq->desc, vq->mem_size, DMA_ReadFromRAM | DMAF_NoModify);
+        /* Flags must contain the StartDMA flags (DMA_ReadFromRAM), but
+         * NOT DMAF_NoModify: the device wrote the used ring throughout
+         * the session, and NoModify would let the kernel skip cache
+         * invalidation for a region that WAS modified. */
+        IExec->EndDMA(vq->desc, vq->mem_size, DMA_ReadFromRAM);
         vq->dma_entries = 0;
     }
     if (vq->indirect_tables)

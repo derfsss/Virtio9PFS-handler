@@ -94,6 +94,16 @@ BOOL V9P_InitVirtIO(struct V9PHandler *handler)
         VirtQueue_Free(IExec, vq);
         return FALSE;
     }
+    /* The device derives avail/used addresses from the single PFN we
+     * program below, so the vring MUST be one physical block.  Cannot
+     * happen with AVT_Contiguous; kept as a guard. */
+    if (vring_entries > 1) {
+        DPRINTF("InitVirtIO: vring physically fragmented (%lu entries) despite AVT_Contiguous.\n",
+                vring_entries);
+        IExec->EndDMA(vq->desc, vq->mem_size, DMA_ReadFromRAM | DMAF_NoModify);
+        VirtQueue_Free(IExec, vq);
+        return FALSE;
+    }
 
     struct DMAEntry *vring_dma = (struct DMAEntry *)IExec->AllocSysObjectTags(
         ASOT_DMAENTRY, ASODMAE_NumEntries, vring_entries, TAG_DONE);
@@ -237,6 +247,17 @@ static BOOL V9P_InitVirtIO_Modern(struct V9PHandler *handler)
     /* DMA-map the vring */
     uint32 vring_entries = IExec->StartDMA(vq->desc, vq->mem_size, DMA_ReadFromRAM);
     if (vring_entries == 0) {
+        DPRINTF("InitVirtIO_Modern: StartDMA failed for queue 0\n");
+        VirtQueue_Free(IExec, vq);
+        return FALSE;
+    }
+    /* desc/avail/used physical addresses are all derived from entry[0]
+     * by fixed offsets, so the vring MUST be one physical block.
+     * Cannot happen with AVT_Contiguous; kept as a guard. */
+    if (vring_entries > 1) {
+        DPRINTF("InitVirtIO_Modern: vring physically fragmented (%lu entries) despite AVT_Contiguous.\n",
+                vring_entries);
+        IExec->EndDMA(vq->desc, vq->mem_size, DMA_ReadFromRAM | DMAF_NoModify);
         VirtQueue_Free(IExec, vq);
         return FALSE;
     }

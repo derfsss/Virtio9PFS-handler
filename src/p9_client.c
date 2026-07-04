@@ -32,14 +32,22 @@ static inline uint64 v9p_read_tb(void)
 
 /* Time-base frequency in Hz.  Cached on first use; queried via
  * GetCPUInfo so the value matches whatever TB rate AmigaOne /
- * Pegasos2 / SAM460ex actually run at. */
+ * Pegasos2 / SAM460ex actually run at.
+ *
+ * GCIT_TimeBaseSpeed takes a uint64* (per the exec autodoc) -- the
+ * kernel writes 8 bytes.  Passing a uint32 here would clobber 4 bytes
+ * of adjacent stack AND (on big-endian PPC) leave only the high word,
+ * i.e. 0, in the variable, silently falling back to 33 MHz and skewing
+ * every wall-clock timeout. */
 static uint32 v9p_tb_freq_hz(void)
 {
     static uint32 cached = 0;
     if (cached == 0) {
-        uint32 freq = 0;
+        uint64 freq = 0;
         IExec->GetCPUInfoTags(GCIT_TimeBaseSpeed, &freq, TAG_END);
-        cached = freq ? freq : 33000000u;  /* AmigaOne-class fallback */
+        if (freq == 0 || freq > 0xFFFFFFFFULL)
+            freq = 33000000u;  /* AmigaOne-class fallback */
+        cached = (uint32)freq;
     }
     return cached;
 }
@@ -112,8 +120,11 @@ static inline void cache_invalidate(void *addr, uint32 len)
  * Uses cached DMA physical addresses (resolved once at startup) with
  * PPC dcbst/dcbf for per-transaction cache coherency:
  *   - dcbst tx_buf: flush CPU writes to RAM so device sees our T-message
- *   - dcbf  rx_buf: flush + invalidate so CPU reads the device's
- *                    R-message from RAM on the next load
+ *   - dcbf  rx_buf: invalidate the received R-message (header during the
+ *                    poll, then `written` bytes once matched) so the CPU
+ *                    reads the device's data from RAM, not stale cache.
+ *                    The CPU never writes rx_buf, so no pre-submit flush
+ *                    of the full buffer is needed.
  *
  * The semaphore is removed since FBX runs a single-threaded event loop.
  */
@@ -132,8 +143,13 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
     /* Flush tx_buf from CPU cache to RAM so device sees it */
     cache_flush(h->tx_buf, tx_size);
 
-    /* Invalidate rx_buf so CPU won't read stale cached data after device writes */
-    cache_invalidate(h->rx_buf, h->msize);
+    /* No pre-submit invalidate of rx_buf is needed: the CPU never
+     * writes rx_buf (all parsing is read-only and the alloc-time clear
+     * was flushed by StartDMA), so no dirty line can be written back
+     * over the device's response mid-DMA.  Stale clean lines are
+     * handled by the post-completion invalidate below, sized to the
+     * actual response instead of the full msize -- saves ~32K dcbf ops
+     * per transaction with a 512K buffer. */
 
     /* Build scatter-gather using cached physical addresses */
     struct vring_sg sg[2];
@@ -177,7 +193,10 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
              * exiting the poll loop.  Invalidate the header cache lines
              * so tag/size are read fresh from RAM. */
             cache_invalidate(h->rx_buf, 32);
-            if (written >= 7) {
+            /* Bound `written` by the buffer we actually posted: it is
+             * device-provided and later used as a parse/invalidate
+             * length, so an oversized value must never escape here. */
+            if (written >= 7 && written <= h->msize) {
                 uint16 got_tag = (uint16)h->rx_buf[5]
                                | ((uint16)h->rx_buf[6] << 8);
                 uint32 got_size = ((uint32)h->rx_buf[0])
@@ -212,9 +231,13 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
         }
     }
 
-    /* Invalidate the full rx_buf so subsequent unmarshal reads are fresh
-     * (we only invalidated the first cache line above for the tag check). */
-    cache_invalidate(h->rx_buf, h->msize);
+    /* Invalidate the received R-message so subsequent unmarshal reads
+     * are fresh (we only invalidated the header above for the tag
+     * check).  `written` bounds everything any caller will parse --
+     * p9_require_size guards against reads past it -- so invalidating
+     * beyond it would be pure overhead. */
+    if (ret_cookie)
+        cache_invalidate(h->rx_buf, written);
 
     if (!ret_cookie) {
         DPRINTF("V9P_Transact: timeout -- attempting Tflush for tag\n");
@@ -230,7 +253,9 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
         p9_finalize(h->flush_buf, flush_off);
 
         cache_flush(h->flush_buf, flush_off);
-        cache_invalidate(h->rx_buf, h->msize);
+        /* rx_buf needs no invalidate here either -- nothing parses the
+         * drained responses, and the next V9P_Transact invalidates the
+         * region it actually reads. */
 
         struct vring_sg fsg[2];
         fsg[0].addr = h->flush_phys;
@@ -266,7 +291,6 @@ uint32 V9P_Transact(struct V9PHandler *h, uint32 tx_size)
                 if (!ret_cookie)
                     break;
             }
-            cache_invalidate(h->rx_buf, h->msize);
         }
 
         DPRINTF("V9P_Transact: flush complete, returning timeout\n");

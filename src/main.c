@@ -33,6 +33,7 @@ static const char *version __attribute__((used)) =
 #include <dos/dosextens.h>
 #include <dos/startup.h>
 #include <exec/exec.h>
+#include <exec/exectags.h>
 #include <exec/memory.h>
 #include <libraries/filesysbox.h>
 #include <proto/expansion.h>
@@ -78,25 +79,23 @@ void V9P_FillOperations(struct fuse_operations *ops);
  * instantly instead.
  *
  * ORDER MATTERS.  The mount caller holds the DosList semaphore while it
- * waits for the ACTION_STARTUP reply, so the reply must come FIRST -- a
- * blocking RemDosEntry before it deadlocks the boot against that lock
- * (the AddDosEntry/RemDosEntry locking caveat).  The removal afterwards is
- * best-effort and strictly non-blocking: AttemptLockDosList only, never
- * LockDosList.  If the lock can't be taken within the retry window we skip
- * removal; the node then stays mountable with dn_Port unset, so the next
- * access relaunches the handler, which retries this removal -- the fallback
- * converges instead of hanging.
+ * waits for the ACTION_STARTUP reply, so the reply must come FIRST.  The
+ * removal afterwards uses NonBlockingModifyDosEntry(NBM_REMDOSENTRY) --
+ * the V51.29 function the AddDosEntry/RemDosEntry autodocs direct handlers
+ * to, precisely because it can never block the caller on the DosList lock
+ * (all locking, including the contended case, is handled internally).  If
+ * the removal fails the node stays mountable with dn_Port unset, so the
+ * next access relaunches the handler, which retries this removal -- the
+ * fallback converges instead of hanging.
  *
  * The removed node is intentionally NOT freed: dn_SegList is the very
  * seglist this code is executing from, and the mount caller may still hold
  * references.  A one-time boot allocation is the safe price.
  *
  * dos.library is opened locally rather than held for the handler lifetime
- * because this is the only place that needs it.
+ * because this is the only place that needs it.  Version 53 (4.1) is
+ * comfortably past the V51.29 NonBlockingModifyDosEntry baseline.
  */
-#define DECLINE_LOCK_RETRIES  50
-#define DECLINE_RETRY_TICKS   2   /* 2 ticks = ~40 ms per attempt */
-
 static void V9P_DeclineMount(struct Message *startupMsg, const char *reason)
 {
     struct DosPacket *pkt = startupMsg ?
@@ -106,36 +105,36 @@ static void V9P_DeclineMount(struct Message *startupMsg, const char *reason)
 
     /* Reply first; releases the caller's DosList lock (see above).  Running
      * code after the reply is safe -- the early-exit cleanup paths in
-     * _start() already do. */
-    if (IFileSysBox)
+     * _start() already do.  Without FBX (open failed), reply by hand:
+     * the packet result fields are NOT initialised by DOS, so both must
+     * be set before ReplyMsg. */
+    if (IFileSysBox) {
         IFileSysBox->FbxReturnMountMsg(startupMsg, DOSTRUE, 0);
+    } else if (startupMsg) {
+        if (pkt) {
+            pkt->dp_Res1 = DOSTRUE;
+            pkt->dp_Res2 = 0;
+        }
+        IExec->ReplyMsg(startupMsg);
+    }
 
     if (!dn)
         return;
 
-    struct Library *dosbase = IExec->OpenLibrary("dos.library", 50);
+    struct Library *dosbase = IExec->OpenLibrary("dos.library", 53);
     if (!dosbase)
         return;
 
     struct DOSIFace *idos = (struct DOSIFace *)IExec->GetInterface(
         dosbase, "main", 1, NULL);
     if (idos) {
-        BOOL removed = FALSE;
-        int tries;
-        for (tries = 0; tries < DECLINE_LOCK_RETRIES && !removed; tries++) {
-            if (idos->AttemptLockDosList(LDF_DEVICES | LDF_WRITE)) {
-                /* DeviceNode and DosList share their leading layout, so the
-                 * cast is the standard idiom for RemDosEntry. */
-                idos->RemDosEntry((struct DosList *)dn);
-                idos->UnLockDosList(LDF_DEVICES | LDF_WRITE);
-                removed = TRUE;
-            } else {
-                idos->Delay(DECLINE_RETRY_TICKS);
-            }
-        }
+        /* DeviceNode and DosList share their leading layout, so the
+         * cast is the standard idiom for DosList entry calls. */
+        int32 removed = idos->NonBlockingModifyDosEntry(
+            (struct DosList *)dn, NBM_REMDOSENTRY, NULL, NULL);
         IExec->DebugPrintF(removed ?
             "[virtio9p] %s -- mount declined, device node removed.\n" :
-            "[virtio9p] %s -- could not lock DosList to remove device node.\n",
+            "[virtio9p] %s -- mount declined, device node removal failed.\n",
             reason);
         IExec->DropInterface((struct Interface *)idos);
     }
@@ -202,35 +201,19 @@ int32 _start(STRPTR argstring __attribute__((unused)),
 
     /* 2. Open filesysbox.library.
      *
-     * Without FBX we must return the startup packet by hand.  The packet
-     * result fields are NOT initialised by DOS -- a bare ReplyMsg would
-     * leave the mount caller reading garbage dp_Res1 (possibly mistaking
-     * the failed mount for success), so set them explicitly first. */
+     * A missing filesysbox.library is permanent for this boot, like a
+     * missing 9P device -- decline (V9P_DeclineMount replies the packet
+     * by hand when IFileSysBox is unavailable) rather than fail, so no
+     * blocking boot requester and no relaunch storm. */
     FileSysBoxBase = IExec->OpenLibrary("filesysbox.library", 54);
     if (!FileSysBoxBase) {
-        DPRINTF("main: Failed to open filesysbox.library v54.\n");
-        struct DosPacket *pkt =
-            (struct DosPacket *)startupMsg->mn_Node.ln_Name;
-        if (pkt) {
-            pkt->dp_Res1 = DOSFALSE;
-            pkt->dp_Res2 = ERROR_INVALID_RESIDENT_LIBRARY;
-        }
-        IExec->ReplyMsg(startupMsg);
-        ret = RETURN_FAIL;
+        V9P_DeclineMount(startupMsg, "No filesysbox.library v54");
         goto cleanup_exec;
     }
     IFileSysBox = (struct FileSysBoxIFace *)IExec->GetInterface(
         FileSysBoxBase, "main", 1, NULL);
     if (!IFileSysBox) {
-        DPRINTF("main: Failed to get FileSysBox interface.\n");
-        struct DosPacket *pkt =
-            (struct DosPacket *)startupMsg->mn_Node.ln_Name;
-        if (pkt) {
-            pkt->dp_Res1 = DOSFALSE;
-            pkt->dp_Res2 = ERROR_INVALID_RESIDENT_LIBRARY;
-        }
-        IExec->ReplyMsg(startupMsg);
-        ret = RETURN_FAIL;
+        V9P_DeclineMount(startupMsg, "No FileSysBox interface");
         goto cleanup_fbx;
     }
 
@@ -270,11 +253,15 @@ int32 _start(STRPTR argstring __attribute__((unused)),
 
     /* 6. Initialize VirtIO transport (legacy or modern).  vq_lock was
      * removed -- FBX runs a single-threaded event loop, so no
-     * AddBuf/Kick concurrency to serialize. */
+     * AddBuf/Kick concurrency to serialize.
+     *
+     * From here on, every init failure DECLINES the mount instead of
+     * replying DOSFALSE.  These conditions are just as permanent for
+     * this boot as a missing device, and a DOSFALSE reply at boot time
+     * raises the blocking "Could not mount device" requester AND leaves
+     * the DeviceNode relaunchable (see V9P_DeclineMount above). */
     if (!V9P_InitVirtIO(&handler)) {
-        DPRINTF("main: VirtIO init failed.\n");
-        IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
-        ret = RETURN_FAIL;
+        V9P_DeclineMount(startupMsg, "VirtIO transport init failed");
         goto cleanup_pci;
     }
 
@@ -296,27 +283,39 @@ int32 _start(STRPTR argstring __attribute__((unused)),
      * so there is no signal bit to allocate.
      */
     if (!V9P_InstallInterrupt(&handler)) {
-        DPRINTF("main: Failed to install interrupt handler.\n");
-        IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
-        ret = RETURN_FAIL;
+        V9P_DeclineMount(startupMsg, "Failed to install interrupt handler");
         goto cleanup_virtio;
     }
 
-    /* 9. Allocate DMA-capable tx/rx buffers */
+    /* 9. Allocate DMA-capable tx/rx buffers.
+     *
+     * AVT_Contiguous guarantees physically contiguous pages -- required
+     * because the device is programmed with a single physical address
+     * per buffer.  Without it, AllocVecTags may return virtually-
+     * contiguous but physically fragmented memory (StartDMA autodoc:
+     * "adjacent virtual addresses might not be adjacent in physical
+     * memory"), which used to make init fail intermittently depending
+     * on boot-time memory layout.  AVT_Lock defaults to TRUE for
+     * MEMF_SHARED, pinning the pages.
+     *
+     * Sized P9_MSIZE (not handler.msize) deliberately: P9_Version may
+     * shrink handler.msize later, and the EndDMA calls at cleanup_bufs
+     * must be issued with the exact same size StartDMA was given. */
     handler.tx_buf = (uint8 *)IExec->AllocVecTags(
-        handler.msize, AVT_Type, MEMF_SHARED, AVT_ClearWithValue, 0, TAG_DONE);
+        P9_MSIZE, AVT_Type, MEMF_SHARED, AVT_Contiguous, TRUE,
+        AVT_ClearWithValue, 0, TAG_DONE);
     handler.rx_buf = (uint8 *)IExec->AllocVecTags(
-        handler.msize, AVT_Type, MEMF_SHARED, AVT_ClearWithValue, 0, TAG_DONE);
+        P9_MSIZE, AVT_Type, MEMF_SHARED, AVT_Contiguous, TRUE,
+        AVT_ClearWithValue, 0, TAG_DONE);
     /* Dedicated 16-byte buffer for Tflush.  Held throughout
      * handler lifetime so the timeout path never overwrites a possibly-
      * still-being-read T-message in tx_buf. */
     handler.flush_buf = (uint8 *)IExec->AllocVecTags(
-        16, AVT_Type, MEMF_SHARED, AVT_ClearWithValue, 0, TAG_DONE);
+        16, AVT_Type, MEMF_SHARED, AVT_Contiguous, TRUE,
+        AVT_ClearWithValue, 0, TAG_DONE);
 
     if (!handler.tx_buf || !handler.rx_buf || !handler.flush_buf) {
-        DPRINTF("main: Failed to allocate DMA buffers.\n");
-        IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
-        ret = RETURN_FAIL;
+        V9P_DeclineMount(startupMsg, "Failed to allocate DMA buffers");
         goto cleanup_irq;
     }
 
@@ -336,44 +335,50 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         uint32 n;
         struct DMAEntry *de;
 
-        n = IExec->StartDMA(handler.tx_buf, handler.msize, DMA_ReadFromRAM);
+        n = IExec->StartDMA(handler.tx_buf, P9_MSIZE, DMA_ReadFromRAM);
         if (n == 0) {
-            DPRINTF("main: StartDMA(tx) failed.\n");
-            IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
-            ret = RETURN_FAIL;
+            V9P_DeclineMount(startupMsg, "StartDMA(tx) failed");
             goto cleanup_bufs;
         }
         if (n > 1) {
-            DPRINTF("main: tx_buf physically fragmented (%lu entries) -- need contiguous.\n", n);
-            IExec->EndDMA(handler.tx_buf, handler.msize, DMA_ReadFromRAM | DMAF_NoModify);
-            IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
-            ret = RETURN_FAIL;
+            /* Cannot happen with AVT_Contiguous; kept as a guard. */
+            DPRINTF("main: tx_buf physically fragmented (%lu entries) despite AVT_Contiguous.\n", n);
+            IExec->EndDMA(handler.tx_buf, P9_MSIZE, DMA_ReadFromRAM | DMAF_NoModify);
+            V9P_DeclineMount(startupMsg, "tx_buf physically fragmented");
             goto cleanup_bufs;
         }
         de = (struct DMAEntry *)IExec->AllocSysObjectTags(
             ASOT_DMAENTRY, ASODMAE_NumEntries, n, TAG_DONE);
-        IExec->GetDMAList(handler.tx_buf, handler.msize, DMA_ReadFromRAM, de);
+        if (!de) {
+            IExec->EndDMA(handler.tx_buf, P9_MSIZE, DMA_ReadFromRAM | DMAF_NoModify);
+            V9P_DeclineMount(startupMsg, "No memory for tx DMAEntry list");
+            goto cleanup_bufs;
+        }
+        IExec->GetDMAList(handler.tx_buf, P9_MSIZE, DMA_ReadFromRAM, de);
         handler.tx_phys = (uint32)de[0].PhysicalAddress;
         IExec->FreeSysObject(ASOT_DMAENTRY, de);
         handler.tx_dma_active = TRUE;          /* defer EndDMA */
 
-        n = IExec->StartDMA(handler.rx_buf, handler.msize, 0);
+        n = IExec->StartDMA(handler.rx_buf, P9_MSIZE, 0);
         if (n == 0) {
-            DPRINTF("main: StartDMA(rx) failed.\n");
-            IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
-            ret = RETURN_FAIL;
+            V9P_DeclineMount(startupMsg, "StartDMA(rx) failed");
             goto cleanup_bufs;
         }
         if (n > 1) {
-            DPRINTF("main: rx_buf physically fragmented (%lu entries) -- need contiguous.\n", n);
-            IExec->EndDMA(handler.rx_buf, handler.msize, DMAF_NoModify);
-            IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
-            ret = RETURN_FAIL;
+            /* Cannot happen with AVT_Contiguous; kept as a guard. */
+            DPRINTF("main: rx_buf physically fragmented (%lu entries) despite AVT_Contiguous.\n", n);
+            IExec->EndDMA(handler.rx_buf, P9_MSIZE, DMAF_NoModify);
+            V9P_DeclineMount(startupMsg, "rx_buf physically fragmented");
             goto cleanup_bufs;
         }
         de = (struct DMAEntry *)IExec->AllocSysObjectTags(
             ASOT_DMAENTRY, ASODMAE_NumEntries, n, TAG_DONE);
-        IExec->GetDMAList(handler.rx_buf, handler.msize, 0, de);
+        if (!de) {
+            IExec->EndDMA(handler.rx_buf, P9_MSIZE, DMAF_NoModify);
+            V9P_DeclineMount(startupMsg, "No memory for rx DMAEntry list");
+            goto cleanup_bufs;
+        }
+        IExec->GetDMAList(handler.rx_buf, P9_MSIZE, 0, de);
         handler.rx_phys = (uint32)de[0].PhysicalAddress;
         IExec->FreeSysObject(ASOT_DMAENTRY, de);
         handler.rx_dma_active = TRUE;          /* defer EndDMA */
@@ -381,13 +386,16 @@ int32 _start(STRPTR argstring __attribute__((unused)),
         /* Also resolve flush_buf phys */
         n = IExec->StartDMA(handler.flush_buf, 16, DMA_ReadFromRAM);
         if (n == 0) {
-            DPRINTF("main: StartDMA(flush) failed.\n");
-            IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
-            ret = RETURN_FAIL;
+            V9P_DeclineMount(startupMsg, "StartDMA(flush) failed");
             goto cleanup_bufs;
         }
         de = (struct DMAEntry *)IExec->AllocSysObjectTags(
             ASOT_DMAENTRY, ASODMAE_NumEntries, n, TAG_DONE);
+        if (!de) {
+            IExec->EndDMA(handler.flush_buf, 16, DMA_ReadFromRAM | DMAF_NoModify);
+            V9P_DeclineMount(startupMsg, "No memory for flush DMAEntry list");
+            goto cleanup_bufs;
+        }
         IExec->GetDMAList(handler.flush_buf, 16, DMA_ReadFromRAM, de);
         handler.flush_phys = (uint32)de[0].PhysicalAddress;
         IExec->FreeSysObject(ASOT_DMAENTRY, de);
@@ -401,8 +409,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     int32 err = P9_Version(&handler);
     if (err) {
         DPRINTF("main: P9_Version failed: %ld\n", err);
-        IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
-        ret = RETURN_FAIL;
+        V9P_DeclineMount(startupMsg, "9P version handshake failed");
         goto cleanup_bufs;
     }
 
@@ -412,8 +419,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     err = P9_Attach(&handler, handler.root_fid);
     if (err) {
         DPRINTF("main: P9_Attach failed: %ld\n", err);
-        IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_DISK);
-        ret = RETURN_FAIL;
+        V9P_DeclineMount(startupMsg, "9P attach failed");
         goto cleanup_bufs;
     }
 
@@ -424,8 +430,7 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     if (!handler.fid_pool) {
         DPRINTF("main: Failed to create FID pool.\n");
         P9_Clunk(&handler, handler.root_fid);
-        IFileSysBox->FbxReturnMountMsg(startupMsg, DOSFALSE, ERROR_NO_FREE_STORE);
-        ret = RETURN_FAIL;
+        V9P_DeclineMount(startupMsg, "Failed to create FID pool");
         goto cleanup_bufs;
     }
 
@@ -472,13 +477,19 @@ int32 _start(STRPTR argstring __attribute__((unused)),
     FidPool_Destroy(handler.fid_pool);
 
 cleanup_bufs:
-    /* Matching EndDMA for each successful StartDMA we left live. */
+    /* Matching EndDMA for each successful StartDMA we left live.
+     * Sizes are P9_MSIZE, NOT handler.msize -- P9_Version may have
+     * renegotiated msize down, and EndDMA "*must* be the same value
+     * that was passed to StartDMA" (exec autodoc).
+     * DMAF_NoModify is only claimed for regions the device never
+     * wrote: tx/flush (device reads them).  rx was device-written all
+     * session, so it gets the honest flags (none). */
     if (handler.flush_dma_active)
         IExec->EndDMA(handler.flush_buf, 16, DMA_ReadFromRAM | DMAF_NoModify);
     if (handler.rx_dma_active)
-        IExec->EndDMA(handler.rx_buf, handler.msize, DMAF_NoModify);
+        IExec->EndDMA(handler.rx_buf, P9_MSIZE, 0);
     if (handler.tx_dma_active)
-        IExec->EndDMA(handler.tx_buf, handler.msize, DMA_ReadFromRAM | DMAF_NoModify);
+        IExec->EndDMA(handler.tx_buf, P9_MSIZE, DMA_ReadFromRAM | DMAF_NoModify);
     if (handler.flush_buf)
         IExec->FreeVec(handler.flush_buf);
     if (handler.rx_buf)
